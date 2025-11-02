@@ -8,7 +8,7 @@ const client = new SteamUser({
 
 const logOnOptions = {
     accountName: 'phamtuyenhien1',
-    password: 'Sonickute12345@'
+    password: ''
 };
 
 client.logOn(logOnOptions);
