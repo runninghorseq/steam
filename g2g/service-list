@@ -1,0 +1,111 @@
+ [
+      {
+        "service_id": "0765978e-3fdf-48b4-bed3-184823aa439e",
+        "service_name": "Items",
+        "categories": [
+          {
+            "category_name": "Items",
+            "category_id": "c508fb9f-a58e-4819-b815-c4684d8a2e70"
+          }
+        ]
+      },
+      {
+        "service_id": "8f88b6fd-93df-4a07-b8b0-7d90b152b81f",
+        "service_name": "Gift Cards",
+        "categories": [
+          {
+            "category_name": "Gift Cards",
+            "sub_categories": [
+              {
+                "category_name": "eGift Cards",
+                "category_id": "c62888c6-b584-4a04-9410-0c35a1d81163"
+              },
+              {
+                "category_name": "Retail Gift Cards",
+                "category_id": "eea147bd-98fd-4a2f-ac92-ed2cc00fba51"
+              }
+            ]
+          },
+          {
+            "category_name": "Games",
+            "sub_categories": [
+              {
+                "category_name": "Top Up",
+                "category_id": "2948dd84-c78f-42cf-8e58-ef990c554902"
+              },
+              {
+                "category_name": "Digital Pins",
+                "category_id": "3e6f6590-9729-4f66-a8ff-2fbdbdb560de"
+              }
+            ]
+          },
+          {
+            "category_name": "Software & Apps",
+            "sub_categories": [
+              {
+                "category_name": "Top Up",
+                "category_id": "3577fc96-70d1-4f74-a9e1-3785501171dc"
+              },
+              {
+                "category_name": "Digital Pins",
+                "category_id": "f8e8ebec-39a8-4fcb-8792-0f7d7474d6e4"
+              },
+              {
+                "category_name": "Accounts",
+                "category_id": "2e37207b-5ac4-4399-841e-56f9493d9f7d"
+              },
+              {
+                "category_name": "Platform Engagement",
+                "category_id": "13633b2e-c4ae-4af4-b4a5-27a09697695c"
+              }
+            ]
+          },
+          {
+            "category_name": "Payment Cards",
+            "sub_categories": [
+              {
+                "category_name": "eWallet",
+                "category_id": "51e5b7f5-778d-4003-9f47-0f8ee5717ac1"
+              }
+            ]
+          },
+          {
+            "category_name": "Telco",
+            "sub_categories": [
+              {
+                "category_name": "Top Up",
+                "category_id": "93f64611-72d3-4dd8-95e2-81e9249197bf"
+              },
+              {
+                "category_name": "Digital Pins",
+                "category_id": "498f71d7-012b-449c-9b45-ad6b48f6a8b9"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "service_id": "90015a0f-3983-4953-8368-96ac181d9e92",
+        "service_name": "Top Up"
+      },
+      {
+        "service_id": "f6a1aba5-473a-4044-836a-8968bbab16d7",
+        "service_name": "Accounts",
+        "categories": [
+          {
+            "category_name": "Accounts",
+            "category_id": "5830014a-b974-45c6-9672-b51e83112fb7"
+          }
+        ]
+      },
+      {
+        "service_id": "lgc_service_1",
+        "service_name": "Game coins",
+        "categories": [
+          {
+            "category_name": "Game coins",
+            "category_id": "3c2a9034-2569-4484-92ad-c00e384e7085"
+          }
+        ]
+      }
+    ]
