@@ -7,8 +7,8 @@ const client = new SteamUser({
 });
 
 const logOnOptions = {
-    accountName: 'argotsgardyhfx',
-    password: ''
+    accountName: 'pearlebonyh',
+    password: '',
 };
 
 // const logOnOptions = {
@@ -84,28 +84,28 @@ client.on('accountInfo', function(info) {
         console.log('Email Address:', client.emailInfo.address);
     }
 
-    client.setPersona(SteamUser.EPersonaState.Online, 'fungaming');
+    client.setPersona(SteamUser.EPersonaState.Online, 'fuga' + logOnOptions.accountName);
     client.gamesPlayed(440);
 
     // Example: Convert quick-invite link (add your own link to test)
     // convertQuickInviteLink('https://s.team/p/xxxx-xxxx/jrtxmvqcw');
 
     // Create a quick invite link for this account
-    // client.createQuickInviteLink({
-    //     inviteLimit: 5, // How many times this link can be used
-    //     inviteDuration: 86400 // Valid for 24 hours (86400 seconds)
-    // }, function(err, response) {
-    //     if (!err) {
-    //         console.log('\n=== Your Quick Invite Link ===');
-    //         console.log('Link:', response.token.invite_link);
-    //         console.log('Uses Remaining:', response.token.invite_limit);
-    //         console.log('Time Remaining:', response.token.invite_duration ? `${response.token.invite_duration} seconds` : 'Never expires');
-    //         console.log('Created:', response.token.time_created);
-    //         console.log('Valid:', response.token.valid);
-    //     } else {
-    //         console.log('Error creating invite link:', err);
-    //     }
-    // });
+    client.createQuickInviteLink({
+        inviteLimit: 1000, // How many times this link can be used
+        inviteDuration: null // Valid for 24 hours (86400 seconds)
+    }, function(err, response) {
+        if (!err) {
+            console.log('\n=== Your Quick Invite Link ===');
+            console.log('Link:', response.token.invite_link);
+            console.log('Uses Remaining:', response.token.invite_limit);
+            console.log('Time Remaining:', response.token.invite_duration ? `${response.token.invite_duration} seconds` : 'Never expires');
+            console.log('Created:', response.token.time_created);
+            console.log('Valid:', response.token.valid);
+        } else {
+            console.log('Error creating invite link:', err);
+        }
+    });
 });
 
 // Account limitations loaded

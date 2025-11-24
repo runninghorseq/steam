@@ -166,6 +166,7 @@ clients.forEach((accClient, index) => {
         const steamID64 = accClient.steamID.getSteamID64();
         
         // Fetch friend data from Steam Web API to get friend_since timestamps
+        /**
         fetchFriendsFromAPI(steamID64, (err, apiFriends) => {
             if (err) {
                 console.log(`[${account.id}] Error fetching friends from API:`, err.message);
@@ -209,6 +210,7 @@ clients.forEach((accClient, index) => {
                 }
             });
         });
+         **/
     });
     
     accClient.on('error', function(err) {
