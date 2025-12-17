@@ -15,7 +15,7 @@ function parseSteamAccounts(filePath) {
         const data = fs.readFileSync(filePath, 'utf8');
         const lines = data.split('\n').filter(line => line.trim());
         
-        const accounts = lines.map((line, index) => {
+        const accounts = lines.slice(0,15).map((line, index) => {
             const parts = line.split('----');
             return {
                 id: index + 1,
@@ -49,8 +49,10 @@ function parseInviteLinks(filePath) {
     }
 }
 
-const inviteLinks = parseInviteLinks('quick_invite_link.txt');
-console.log(`Loaded ${inviteLinks.length} invite links from quick_invite_link.txt\n`);
+const inviteLinks1 = parseInviteLinks('quick_invite_link.txt');
+const inviteLinks2 = parseInviteLinks('quick_invite_link2.txt');
+console.log(`Loaded ${inviteLinks1.length} invite links from quick_invite_link.txt`);
+console.log(`Loaded ${inviteLinks2.length} invite links from quick_invite_link2.txt\n`);
 
 // Helper function to fetch friend list from Steam Web API
 function fetchFriendsFromAPI(steamID64, callback) {
@@ -93,9 +95,11 @@ function fetchFriendsFromAPI(steamID64, callback) {
 
 console.log('\n=== Account List with Invite Links ===');
 accounts.forEach((acc, index) => {
-    const assignedLink = inviteLinks[index % inviteLinks.length];
+    const assignedLink1 = inviteLinks1[index % inviteLinks1.length];
+    const assignedLink2 = inviteLinks2[index % inviteLinks2.length];
     console.log(`[${acc.id}] Username: ${acc.username}, password: ${acc.password}`);
-    console.log(`    → Will redeem: ${assignedLink}`);
+    console.log(`    → Will redeem link 1: ${assignedLink1}`);
+    console.log(`    → Will redeem link 2: ${assignedLink2}`);
 });
 
 // Create a Steam client for each account
@@ -109,9 +113,9 @@ const clients = accounts.map((account, index) => {
     // Assign account info to client
     accClient.accountData = account;
     
-    // Assign invite link in order (cycle through links if more accounts than links)
-    accClient.inviteLink = inviteLinks[index % inviteLinks.length];
-    // accClient.inviteLink = []
+    // Assign 2 invite links in order (cycle through links if more accounts than links)
+    accClient.inviteLink1 = inviteLinks1[index % inviteLinks1.length];
+    accClient.inviteLink2 = inviteLinks2[index % inviteLinks2.length];
 
     
     return accClient;
@@ -129,18 +133,32 @@ clients.forEach((accClient, index) => {
         accClient.setPersona(SteamUser.EPersonaState.Online);
         accClient.gamesPlayed(440);
         
-        // Redeem quick invite link for each account (in order)
-        if (accClient.inviteLink) {
-            console.log(`[${account.id}] Using invite link: ${accClient.inviteLink}`);
-            accClient.redeemQuickInviteLink(accClient.inviteLink, function(err) {
+        // Redeem first quick invite link
+        if (accClient.inviteLink1) {
+            console.log(`[${account.id}] Using invite link 1: ${accClient.inviteLink1}`);
+            accClient.redeemQuickInviteLink(accClient.inviteLink1, function(err) {
                 if (!err) {
-                    console.log(`[${account.id}] Successfully sent friend request via link`);
+                    console.log(`[${account.id}] Successfully sent friend request via link 1`);
                 } else {
-                    console.log(`[${account.id}] Error redeeming invite link:`, err.message);
+                    console.log(`[${account.id}] Error redeeming invite link 1:`, err.message);
+                }
+                
+                // Redeem second quick invite link after first one completes
+                if (accClient.inviteLink2) {
+                    setTimeout(() => {
+                        console.log(`[${account.id}] Using invite link 2: ${accClient.inviteLink2}`);
+                        accClient.redeemQuickInviteLink(accClient.inviteLink2, function(err2) {
+                            if (!err2) {
+                                console.log(`[${account.id}] Successfully sent friend request via link 2`);
+                            } else {
+                                console.log(`[${account.id}] Error redeeming invite link 2:`, err2.message);
+                            }
+                        });
+                    }, 2000); // Wait 2 seconds between redeems
                 }
             });
         } else {
-            console.log(`[${account.id}] No invite link assigned for this account`);
+            console.log(`[${account.id}] No invite links assigned for this account`);
         }
     });
     
