@@ -16,6 +16,17 @@ function parseSteamAccounts(filePath) {
         const lines = data.split('\n').filter(line => line.trim());
         
         const accounts = lines.slice(0,15).map((line, index) => {
+            if (line.includes('|')) {
+                // Format: Index|hotmail|password|steamID|password
+                const parts = line.split('|');
+                return {
+                    id: index + 1,
+                    username: parts[3],
+                    password: parts[4],
+                    email: parts[1],
+                    steamID: parts[2]
+                };
+            }
             const parts = line.split('----');
             return {
                 id: index + 1,
@@ -40,7 +51,7 @@ console.log(`Loaded ${accounts.length} accounts from file`);
 const QUICK_INVITE_LINKS = require('./quick_invite_links');
 
 // Which steamIDs to add — each entry resolves to one invite link via QUICK_INVITE_LINKS
-const run = ['forssmelsoey', 'DeanaIsabel', 'JamiNina'];
+const run = ['daicaso1122', 'renemay2', 'LidiaOlivia'];
 // const run = ['forssmelsoey', 'DeanaIsabel', 'JamiNina'];
 
 // Helper function to fetch friend list from Steam Web API
