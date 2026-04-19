@@ -37,22 +37,11 @@ function parseSteamAccounts(filePath) {
 const accounts = parseSteamAccounts('steam_cis_export.txt');
 console.log(`Loaded ${accounts.length} accounts from file`);
 
-// Parse invite links
-function parseInviteLinks(filePath) {
-    try {
-        const data = fs.readFileSync(filePath, 'utf8');
-        const lines = data.split('\n').filter(line => line.trim());
-        return lines;
-    } catch (err) {
-        console.error('Error reading invite links file:', err);
-        return [];
-    }
-}
+const QUICK_INVITE_LINKS = require('./quick_invite_links');
 
-const inviteLinks1 = parseInviteLinks('quick_invite_link.txt');
-const inviteLinks2 = parseInviteLinks('quick_invite_link2.txt');
-console.log(`Loaded ${inviteLinks1.length} invite links from quick_invite_link.txt`);
-console.log(`Loaded ${inviteLinks2.length} invite links from quick_invite_link2.txt\n`);
+// Which steamIDs to add — each entry resolves to one invite link via QUICK_INVITE_LINKS
+const run = ['forssmelsoey', 'DeanaIsabel', 'JamiNina'];
+// const run = ['forssmelsoey', 'DeanaIsabel', 'JamiNina'];
 
 // Helper function to fetch friend list from Steam Web API
 function fetchFriendsFromAPI(steamID64, callback) {
@@ -94,71 +83,101 @@ function fetchFriendsFromAPI(steamID64, callback) {
 }
 
 console.log('\n=== Account List with Invite Links ===');
-accounts.forEach((acc, index) => {
-    const assignedLink1 = inviteLinks1[index % inviteLinks1.length];
-    const assignedLink2 = inviteLinks2[index % inviteLinks2.length];
+const runLinks = run.map(id => QUICK_INVITE_LINKS[id]).filter(Boolean);
+accounts.forEach((acc) => {
     console.log(`[${acc.id}] Username: ${acc.username}, password: ${acc.password}`);
-    console.log(`    → Will redeem link 1: ${assignedLink1}`);
-    console.log(`    → Will redeem link 2: ${assignedLink2}`);
+    runLinks.forEach((link, i) => console.log(`    → Will redeem link ${i + 1}: ${link}`));
+    if (runLinks.length === 0) console.log(`    → No invite links configured`);
 });
 
 // Create a Steam client for each account
-const clients = accounts.map((account, index) => {
+const clients = accounts.map((account) => {
     const accClient = new SteamUser({
         picCacheSize: 100,
         picsCacheAll: true,
         changelistUpdateInterval: 10000
     });
     
-    // Assign account info to client
     accClient.accountData = account;
-    
-    // Assign 2 invite links in order (cycle through links if more accounts than links)
-    accClient.inviteLink1 = inviteLinks1[index % inviteLinks1.length];
-    accClient.inviteLink2 = inviteLinks2[index % inviteLinks2.length];
+    accClient.inviteLinks = run.map(id => QUICK_INVITE_LINKS[id]).filter(Boolean);
 
     
     return accClient;
 });
 
+// Track login results
+const loginResults = { success: [], failed: [], skipped: [] };
+let settled = 0;
+
+function checkAllSettled() {
+    settled++;
+    if (settled === accounts.length) {
+        setTimeout(() => {
+            console.log('\n=== Login Summary ===');
+            console.log(`Success (${loginResults.success.length}):`, loginResults.success.map(a => a.username).join(', ') || 'none');
+            console.log(`Skipped (${loginResults.skipped.length}) — Steam Guard App required:`, loginResults.skipped.map(a => a.username).join(', ') || 'none');
+            console.log(`Failed  (${loginResults.failed.length}):`);
+            loginResults.failed.forEach(f => console.log(`  [${f.id}] ${f.username} — ${f.reason}`));
+
+            // Log off all active clients then exit
+            console.log('\n=== Logging off all accounts ===');
+            clients.forEach((c, i) => {
+                if (loginResults.success.find(a => a.id === accounts[i].id)) {
+                    console.log(`Logging off: ${accounts[i].username}`);
+                    c.logOff();
+                }
+            });
+            setTimeout(() => process.exit(0), 5000);
+        }, 500);
+    }
+}
+
 // Login all accounts
 console.log('\n=== Logging in all accounts ===');
 clients.forEach((accClient, index) => {
     const account = accounts[index];
-    
+
     accClient.on('loggedOn', function() {
+        loginResults.success.push(account);
+        checkAllSettled();
         console.log(`\n[${account.id}] ${account.username} - Logged in successfully!`);
         console.log(`[${account.id}] Steam ID:`, accClient.steamID.toString());
         
         accClient.setPersona(SteamUser.EPersonaState.Online);
-        accClient.gamesPlayed(440);
-        
-        // Redeem first quick invite link
-        if (accClient.inviteLink1) {
-            console.log(`[${account.id}] Using invite link 1: ${accClient.inviteLink1}`);
-            accClient.redeemQuickInviteLink(accClient.inviteLink1, function(err) {
-                if (!err) {
-                    console.log(`[${account.id}] Successfully sent friend request via link 1`);
-                } else {
-                    console.log(`[${account.id}] Error redeeming invite link 1:`, err.message);
-                }
-                
-                // Redeem second quick invite link after first one completes
-                if (accClient.inviteLink2) {
-                    setTimeout(() => {
-                        console.log(`[${account.id}] Using invite link 2: ${accClient.inviteLink2}`);
-                        accClient.redeemQuickInviteLink(accClient.inviteLink2, function(err2) {
-                            if (!err2) {
-                                console.log(`[${account.id}] Successfully sent friend request via link 2`);
-                            } else {
-                                console.log(`[${account.id}] Error redeeming invite link 2:`, err2.message);
-                            }
-                        });
-                    }, 2000); // Wait 2 seconds between redeems
-                }
-            });
+
+        // Auto add games to library
+        const gameIds = [730, 440, 238960, 613100, 1590840, 599140, 3027490];
+        accClient.requestFreeLicense(gameIds, function(err, grantedApps, grantedPackages) {
+            if (!err) {
+                console.log(`[${account.id}] Games added to library:`, grantedApps);
+            } else {
+                console.log(`[${account.id}] Error adding games to library:`, err.message);
+            }
+        });
+
+        // accClient.gamesPlayed(440);
+        accClient.gamesPlayed(730);
+        // accClient.gamesPlayed(238960); //path of exile
+        // accClient.gamesPlayed(613100);
+        // accClient.gamesPlayed(1590840);
+
+        // Redeem quick invite links sequentially (2s apart)
+        const links = accClient.inviteLinks;
+        if (links.length === 0) {
+            console.log(`[${account.id}] No invite links configured`);
         } else {
-            console.log(`[${account.id}] No invite links assigned for this account`);
+            links.forEach((link, i) => {
+                setTimeout(() => {
+                    console.log(`[${account.id}] Using invite link ${i + 1}: ${link}`);
+                    accClient.redeemQuickInviteLink(link, function(err) {
+                        if (!err) {
+                            console.log(`[${account.id}] Successfully sent friend request via link ${i + 1}`);
+                        } else {
+                            console.log(`[${account.id}] Error redeeming invite link ${i + 1}:`, err.message);
+                        }
+                    });
+                }, i * 2000);
+            });
         }
     });
     
@@ -231,7 +250,25 @@ clients.forEach((accClient, index) => {
          **/
     });
     
+    accClient.on('steamGuard', function(domain, callback) {
+        if (domain === null) {
+            // Mobile authenticator required — skip this account
+            console.log(`[${account.id}] ${account.username} - Skipping: Steam Guard App Code required`);
+            loginResults.skipped.push(account);
+            checkAllSettled();
+            accClient.logOff();
+        } else {
+            // Email Steam Guard — also skip
+            console.log(`[${account.id}] ${account.username} - Skipping: Steam Guard email required (${domain})`);
+            loginResults.skipped.push(account);
+            checkAllSettled();
+            accClient.logOff();
+        }
+    });
+
     accClient.on('error', function(err) {
+        loginResults.failed.push({ ...account, reason: err.message });
+        checkAllSettled();
         console.log(`[${account.id}] Error:`, err.message);
     });
     
