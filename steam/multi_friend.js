@@ -48,12 +48,20 @@ function parseSteamAccounts(filePath) {
 const accounts = parseSteamAccounts('steam_cis_export.txt');
 console.log(`Loaded ${accounts.length} accounts from file`);
 
-const QUICK_INVITE_LINKS = require('./quick_invite_links');
+const ACCOUNTS = require('./steam_accounts');
 
 // Which steamIDs to add — each entry resolves to one invite link via QUICK_INVITE_LINKS
-const run = ['daicaso1122', 'renemay2', 'LidiaOlivia'];
-// const run = ['forssmelsoey', 'DeanaIsabel', 'JamiNina'];
+// const run = ['daicaso1122', 'sisloraquevm', 'lomaywoldeba'];
 
+// const run = ['forssmelsoey','tepozreams','tichvan1742000', 'duaneunger'];
+
+// const run = ['DeanaIsabel','JamiNina','renemay2', 'LidiaOlivia', 'JosieLola3'];
+const run = ['BrazilWWM123'];
+// const run = []
+
+const LOGING_TIMEOUT = 20000;
+
+// const run = []
 // Helper function to fetch friend list from Steam Web API
 function fetchFriendsFromAPI(steamID64, callback) {
     // Steam Web API Key - you can get one from https://steamcommunity.com/dev/apikey
@@ -94,7 +102,7 @@ function fetchFriendsFromAPI(steamID64, callback) {
 }
 
 console.log('\n=== Account List with Invite Links ===');
-const runLinks = run.map(id => QUICK_INVITE_LINKS[id]).filter(Boolean);
+const runLinks = run.map(id => ACCOUNTS[id] && ACCOUNTS[id].quickInviteLink).filter(Boolean);
 accounts.forEach((acc) => {
     console.log(`[${acc.id}] Username: ${acc.username}, password: ${acc.password}`);
     runLinks.forEach((link, i) => console.log(`    → Will redeem link ${i + 1}: ${link}`));
@@ -110,7 +118,7 @@ const clients = accounts.map((account) => {
     });
     
     accClient.accountData = account;
-    accClient.inviteLinks = run.map(id => QUICK_INVITE_LINKS[id]).filter(Boolean);
+    accClient.inviteLinks = run.map(id => ACCOUNTS[id] && ACCOUNTS[id].quickInviteLink).filter(Boolean);
 
     
     return accClient;
@@ -119,6 +127,7 @@ const clients = accounts.map((account) => {
 // Track login results
 const loginResults = { success: [], failed: [], skipped: [] };
 let settled = 0;
+
 
 function checkAllSettled() {
     settled++;
@@ -138,8 +147,8 @@ function checkAllSettled() {
                     c.logOff();
                 }
             });
-            setTimeout(() => process.exit(0), 5000);
-        }, 500);
+            setTimeout(() => process.exit(0), LOGING_TIMEOUT);
+        }, LOGING_TIMEOUT);
     }
 }
 
@@ -167,10 +176,27 @@ clients.forEach((accClient, index) => {
         });
 
         // accClient.gamesPlayed(440);
-        accClient.gamesPlayed(730);
+        // accClient.gamesPlayed(730);
         // accClient.gamesPlayed(238960); //path of exile
         // accClient.gamesPlayed(613100);
         // accClient.gamesPlayed(1590840);
+
+        // Create a quick invite link for this account
+        // accClient.createQuickInviteLink({
+        //     inviteLimit: 1000,
+        //     inviteDuration: null
+        // }, function(err, response) {
+        //     if (!err) {
+        //         console.log(`\n[${account.id}] === Your Quick Invite Link ===`);
+        //         console.log(`[${account.id}] Link:`, response.token.invite_link);
+        //         console.log(`[${account.id}] Uses Remaining:`, response.token.invite_limit);
+        //         console.log(`[${account.id}] Time Remaining:`, response.token.invite_duration ? `${response.token.invite_duration} seconds` : 'Never expires');
+        //         console.log(`[${account.id}] Created:`, response.token.time_created);
+        //         console.log(`[${account.id}] Valid:`, response.token.valid);
+        //     } else {
+        //         console.log(`[${account.id}] Error creating invite link:`, err);
+        //     }
+        // });
 
         // Redeem quick invite links sequentially (2s apart)
         const links = accClient.inviteLinks;
