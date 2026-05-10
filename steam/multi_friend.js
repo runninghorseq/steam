@@ -9,13 +9,15 @@ const client = new SteamUser({
     changelistUpdateInterval: 10000 // 10 seconds - how often to check for updates
 });
 
+const BATCH_SIZE = 17;
+
 // Parse steam_china.txt file
 function parseSteamAccounts(filePath) {
     try {
         const data = fs.readFileSync(filePath, 'utf8');
         const lines = data.split('\n').filter(line => line.trim());
-        
-        const accounts = lines.slice(0,17).map((line, index) => {
+
+        const accounts = lines.map((line, index) => {
             if (line.includes('|')) {
                 // Format: Index|hotmail|password|steamID|password
                 const parts = line.split('|');
@@ -38,7 +40,7 @@ function parseSteamAccounts(filePath) {
                 rawLine: line
             };
         });
-        
+
         return accounts;
     } catch (err) {
         console.error('Error reading file:', err);
@@ -46,30 +48,36 @@ function parseSteamAccounts(filePath) {
     }
 }
 
-// Parse all accounts
-FILE_NAME = 'steam_cis_export.txt'
-const allAccounts = parseSteamAccounts(FILE_NAME);
-console.log(`Loaded ${allAccounts.length} accounts from file`);
-
-// Read latest log entry and skip accounts already successful for the same run
-function readLatestSuccess(fileName) {
+// Collect every rawLine that appears in any prior "Original lines run" section
+function readProcessedRawLines(fileName) {
     const baseName = fileName.replace(/\.[^.]+$/, '');
     const logPath = path.join('logs', `${baseName}.logs`);
-    if (!fs.existsSync(logPath)) return { run: null, success: [] };
+    if (!fs.existsSync(logPath)) return new Set();
     const data = fs.readFileSync(logPath, 'utf8');
-    const headers = [...data.matchAll(/^\[[^\]]+\] run=(.+?) \|/gm)];
-    if (headers.length === 0) return { run: null, success: [] };
-    const last = headers[headers.length - 1];
-    const lastIdx = last.index;
-    const block = data.slice(lastIdx);
-    let lastRun = null;
-    try { lastRun = JSON.parse(last[1]); } catch (_) {}
-    const successMatch = block.match(/^Success \(\d+\): (.+)$/m);
-    const successList = successMatch && successMatch[1] !== 'none'
-        ? successMatch[1].split(',').map(s => s.trim()).filter(Boolean)
-        : [];
-    return { run: lastRun, success: successList };
+    const lines = data.split('\n');
+    const processed = new Set();
+    let inSection = false;
+    for (const line of lines) {
+        if (/^Original lines run \(\d+\):.*$/.test(line)) {
+            inSection = true;
+            continue;
+        }
+        if (inSection) {
+            if (line.startsWith('  ')) {
+                processed.add(line.slice(2));
+            } else {
+                inSection = false;
+            }
+        }
+    }
+    return processed;
 }
+
+// Parse all accounts
+// FILE_NAME = 'steam_cis_export.txt'
+FILE_NAME = '/Volumes/fungame/steam/1910_from_2k.txtresult.txt'
+const allAccounts = parseSteamAccounts(FILE_NAME);
+console.log(`Loaded ${allAccounts.length} accounts from file`);
 
 const ACCOUNTS = require('./steam_accounts');
 
@@ -79,60 +87,21 @@ const ACCOUNTS = require('./steam_accounts');
 // const run = ['forssmelsoey','tepozreams','tichvan1742000', 'duaneunger'];
 
 // const run = ['DeanaIsabel','JamiNina','renemay2', 'LidiaOlivia', 'JosieLola3'];
-const run = ['dukminzs', 'zihankruszeq'];
+const run = ['dukminzs', 'sovikjrollexq', 'duaneunger'];
 // const run = []
 
 const LOGING_TIMEOUT = 20000;
 
-// Skip accounts that already succeeded in the latest log for this same run
-const latest = readLatestSuccess(FILE_NAME);
-const sameRun = latest.run && JSON.stringify(latest.run) === JSON.stringify(run);
-const skipSet = new Set(sameRun ? latest.success : []);
-if (sameRun && skipSet.size > 0) {
-    console.log(`Skipping ${skipSet.size} already-successful accounts from latest log: ${[...skipSet].join(', ')}`);
+// Drop accounts whose rawLine was already processed in any previous run, then take the next batch
+const processedRawLines = readProcessedRawLines(FILE_NAME);
+const remaining = allAccounts.filter(a => !processedRawLines.has(a.rawLine));
+const accounts = remaining.slice(0, BATCH_SIZE);
+console.log(`Already processed: ${processedRawLines.size} | Remaining: ${remaining.length} | This batch: ${accounts.length}`);
+if (accounts.length === 0) {
+    console.log('No accounts left to process. Exiting.');
+    process.exit(0);
 }
-const accounts = allAccounts.filter(a => !skipSet.has(a.username));
-console.log(`Will process ${accounts.length} accounts this run`);
 
-// const run = []
-// Helper function to fetch friend list from Steam Web API
-function fetchFriendsFromAPI(steamID64, callback) {
-    // Steam Web API Key - you can get one from https://steamcommunity.com/dev/apikey
-    const apiKey = 'EFB5DCE316D3146FD6EFA3BECB8BCB80';
-    const url = `https://api.steampowered.com/ISteamUser/GetFriendList/v0001/?key=${apiKey}&steamid=${steamID64}&relationship=friend`;
-    
-    https.get(url, (res) => {
-        let data = '';
-        
-        res.on('data', (chunk) => {
-            data += chunk;
-        });
-        
-        res.on('end', () => {
-            // Check if response is HTML (error page)
-            if (res.statusCode !== 200 || data.trim().startsWith('<')) {
-                console.log('API Error - Response:', data.substring(0, 200));
-                console.log('Status Code:', res.statusCode);
-                callback(new Error(`API returned error: ${res.statusCode}`), null);
-                return;
-            }
-            
-            try {
-                const jsonData = JSON.parse(data);
-                if (jsonData.friendslist && jsonData.friendslist.friends) {
-                    callback(null, jsonData.friendslist.friends);
-                } else {
-                    callback(null, []);
-                }
-            } catch (err) {
-                console.log('JSON Parse Error - Response:', data.substring(0, 200));
-                callback(err, null);
-            }
-        });
-    }).on('error', (err) => {
-        callback(err, null);
-    });
-}
 
 console.log('\n=== Account List with Invite Links ===');
 const runLinks = run.map(id => ACCOUNTS[id] && ACCOUNTS[id].quickInviteLink).filter(Boolean);
@@ -298,53 +267,7 @@ clients.forEach((accClient, index) => {
         
         // Get Steam ID64 for API call
         const steamID64 = accClient.steamID.getSteamID64();
-        
-        // Fetch friend data from Steam Web API to get friend_since timestamps
-        /**
-        fetchFriendsFromAPI(steamID64, (err, apiFriends) => {
-            if (err) {
-                console.log(`[${account.id}] Error fetching friends from API:`, err.message);
-            }
-            
-            // Create a map of API friend data by SteamID
-            const apiFriendsMap = {};
-            if (apiFriends) {
-                apiFriends.forEach(friend => {
-                    apiFriendsMap[friend.steamid] = friend;
-                });
-            }
-            
-            console.log(`\n[${account.id}] === All Friends ===`);
-            Object.keys(accClient.myFriends).forEach((steamIDStr, index) => {
-                const friend = accClient.myFriends[steamIDStr];
-                
-                console.log(`\n[${account.id}] ${index + 1}. Friend:`);
-                console.log(`[${account.id}]    Steam ID: ${steamIDStr}`);
-                
-                // Get friend name and data from accClient.users
-                const user = accClient.users[steamIDStr];
-                if (user) {
-                    console.log(`[${account.id}]    Name: ${user.player_name || 'Unknown'}`);
-                    console.log(`[${account.id}]    Persona Name: ${user.persona_name || 'N/A'}`);
-                }
-                
-                // Get friend_since from API data
-                const apiFriend = apiFriendsMap[steamIDStr];
-                if (apiFriend && apiFriend.friend_since) {
-                    const dateAdded = new Date(apiFriend.friend_since * 1000);
-                    console.log(`[${account.id}]    Date Added: ${dateAdded.toLocaleString()}`);
-                } else {
-                    console.log(`[${account.id}]    Date Added: N/A`);
-                }
-                
-                console.log(`[${account.id}]    Relationship: ${friend || 'N/A'}`);
-                
-                if (user) {
-                    console.log(`[${account.id}]    Online: ${user.persona_state !== 0 ? 'Yes' : 'No'}`);
-                }
-            });
-        });
-         **/
+
     });
     
     accClient.on('steamGuard', function(domain, callback) {
