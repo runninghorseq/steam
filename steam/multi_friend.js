@@ -15,7 +15,7 @@ function parseSteamAccounts(filePath) {
         const data = fs.readFileSync(filePath, 'utf8');
         const lines = data.split('\n').filter(line => line.trim());
         
-        const accounts = lines.slice(0,15).map((line, index) => {
+        const accounts = lines.slice(0,17).map((line, index) => {
             if (line.includes('|')) {
                 // Format: Index|hotmail|password|steamID|password
                 const parts = line.split('|');
@@ -24,7 +24,8 @@ function parseSteamAccounts(filePath) {
                     username: parts[3],
                     password: parts[4],
                     email: parts[1],
-                    steamID: parts[2]
+                    steamID: parts[2],
+                    rawLine: line
                 };
             }
             const parts = line.split('----');
@@ -33,7 +34,8 @@ function parseSteamAccounts(filePath) {
                 username: parts[0],
                 password: parts[1],
                 email: parts[2],
-                steamID: parts[3]
+                steamID: parts[3],
+                rawLine: line
             };
         });
         
@@ -45,8 +47,29 @@ function parseSteamAccounts(filePath) {
 }
 
 // Parse all accounts
-const accounts = parseSteamAccounts('steam_cis_export.txt');
-console.log(`Loaded ${accounts.length} accounts from file`);
+FILE_NAME = 'steam_cis_export.txt'
+const allAccounts = parseSteamAccounts(FILE_NAME);
+console.log(`Loaded ${allAccounts.length} accounts from file`);
+
+// Read latest log entry and skip accounts already successful for the same run
+function readLatestSuccess(fileName) {
+    const baseName = fileName.replace(/\.[^.]+$/, '');
+    const logPath = path.join('logs', `${baseName}.logs`);
+    if (!fs.existsSync(logPath)) return { run: null, success: [] };
+    const data = fs.readFileSync(logPath, 'utf8');
+    const headers = [...data.matchAll(/^\[[^\]]+\] run=(.+?) \|/gm)];
+    if (headers.length === 0) return { run: null, success: [] };
+    const last = headers[headers.length - 1];
+    const lastIdx = last.index;
+    const block = data.slice(lastIdx);
+    let lastRun = null;
+    try { lastRun = JSON.parse(last[1]); } catch (_) {}
+    const successMatch = block.match(/^Success \(\d+\): (.+)$/m);
+    const successList = successMatch && successMatch[1] !== 'none'
+        ? successMatch[1].split(',').map(s => s.trim()).filter(Boolean)
+        : [];
+    return { run: lastRun, success: successList };
+}
 
 const ACCOUNTS = require('./steam_accounts');
 
@@ -56,10 +79,20 @@ const ACCOUNTS = require('./steam_accounts');
 // const run = ['forssmelsoey','tepozreams','tichvan1742000', 'duaneunger'];
 
 // const run = ['DeanaIsabel','JamiNina','renemay2', 'LidiaOlivia', 'JosieLola3'];
-const run = ['BrazilWWM123'];
+const run = ['dukminzs', 'zihankruszeq'];
 // const run = []
 
 const LOGING_TIMEOUT = 20000;
+
+// Skip accounts that already succeeded in the latest log for this same run
+const latest = readLatestSuccess(FILE_NAME);
+const sameRun = latest.run && JSON.stringify(latest.run) === JSON.stringify(run);
+const skipSet = new Set(sameRun ? latest.success : []);
+if (sameRun && skipSet.size > 0) {
+    console.log(`Skipping ${skipSet.size} already-successful accounts from latest log: ${[...skipSet].join(', ')}`);
+}
+const accounts = allAccounts.filter(a => !skipSet.has(a.username));
+console.log(`Will process ${accounts.length} accounts this run`);
 
 // const run = []
 // Helper function to fetch friend list from Steam Web API
@@ -133,11 +166,38 @@ function checkAllSettled() {
     settled++;
     if (settled === accounts.length) {
         setTimeout(() => {
+            const successLine = `Success (${loginResults.success.length}): ${loginResults.success.map(a => a.username).join(', ') || 'none'}`;
+            const skippedLine = `Skipped (${loginResults.skipped.length}) — Steam Guard App required: ${loginResults.skipped.map(a => a.username).join(', ') || 'none'}`;
+            const failedLine = `Failed  (${loginResults.failed.length}): ${loginResults.failed.map(f => `[${f.id}] ${f.username} — ${f.reason}`).join('; ') || 'none'}`;
+
             console.log('\n=== Login Summary ===');
-            console.log(`Success (${loginResults.success.length}):`, loginResults.success.map(a => a.username).join(', ') || 'none');
-            console.log(`Skipped (${loginResults.skipped.length}) — Steam Guard App required:`, loginResults.skipped.map(a => a.username).join(', ') || 'none');
+            console.log(successLine);
+            console.log(skippedLine);
             console.log(`Failed  (${loginResults.failed.length}):`);
             loginResults.failed.forEach(f => console.log(`  [${f.id}] ${f.username} — ${f.reason}`));
+
+            // Export results to file
+            const timestamp = new Date().toISOString();
+            const baseName = FILE_NAME.replace(/\.[^.]+$/, '');
+            const outPath = path.join('logs', `${baseName}.logs`);
+            const header = `[${timestamp}] run=${JSON.stringify(run)} | ${failedLine}`;
+            const body = [
+                header,
+                successLine,
+                skippedLine,
+                `Failed  (${loginResults.failed.length}):`,
+                ...loginResults.failed.map(f => `  [${f.id}] ${f.username} — ${f.reason}`),
+                `Original lines run (${accounts.length}):`,
+                ...accounts.map(a => `  ${a.rawLine}`),
+                ''
+            ].join('\n');
+            try {
+                fs.mkdirSync(path.dirname(outPath), { recursive: true });
+                fs.appendFileSync(outPath, body + '\n');
+                console.log(`\nExported results to ${outPath}`);
+            } catch (err) {
+                console.log(`Error writing log file:`, err.message);
+            }
 
             // Log off all active clients then exit
             console.log('\n=== Logging off all accounts ===');
