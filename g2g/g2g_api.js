@@ -10,11 +10,6 @@ const G2G_API_CONFIG = {
 };
 
 function generateSignature(canonicalUrl, apiKey, userId, timestamp, secretKey) {
-    console.log('canonicalUrl: ', canonicalUrl)
-    console.log('apiKey: ', apiKey)
-    console.log('userID: ', userId)
-    console.log('timestamp: ', timestamp)
-    console.log('secret: ', secretKey)
     const canonicalString = canonicalUrl + apiKey + userId + String(timestamp);
     const signature = CryptoJS.HmacSHA256(canonicalString, secretKey);
     return signature.toString(CryptoJS.enc.Hex);
@@ -30,17 +25,13 @@ function makeRequest(method, path, queryParams = {}, headers = {}, body = null) 
             .join("&");
         const fullPath = queryString ? path + "?" + queryString : path;
         
-        // Generate timestamp and signature
-        // Note: Signature must be calculated using the full path including query parameters
-        const signature = generateSignature(path, G2G_API_CONFIG.apiKey, G2G_API_CONFIG.userId, G2G_API_CONFIG.timestamp, G2G_API_CONFIG.secretKey);
-        console.log('signature: ', signature)
-        console.log('fullpath: ', fullPath)
-        // Set headers
+        const timestamp = Date.now().toString();
+        const signature = generateSignature(path, G2G_API_CONFIG.apiKey, G2G_API_CONFIG.userId, timestamp, G2G_API_CONFIG.secretKey);
         const defaultHeaders = Object.assign({
             "Content-Type": "application/json",
             "g2g-api-key": G2G_API_CONFIG.apiKey,
             "g2g-signature": signature,
-            "g2g-timestamp": G2G_API_CONFIG.timestamp,
+            "g2g-timestamp": timestamp,
             "g2g-userid": G2G_API_CONFIG.userId
         }, headers);
         
@@ -89,8 +80,7 @@ function makeRequest(method, path, queryParams = {}, headers = {}, body = null) 
             });
         });
         
-        // Send body for POST/PUT requests
-        if (body && (method === "POST" || method === "PUT")) {
+        if (body && (method === "POST" || method === "PUT" || method === "PATCH")) {
             const bodyString = typeof body === "string" ? body : JSON.stringify(body);
             req.write(bodyString);
         }
@@ -143,13 +133,23 @@ async function createOffer(offerData) {
     if (!offerData) {
         throw new Error("offerData is required");
     }
-    const requiredFields = ["unit_price", "product_id", "min_qty", "api_qty", "currency", "title"];
+    const requiredFields = ["product_id", "min_qty", "api_qty", "low_stock_alert_qty", "offer_attributes", "currency", "unit_price"];
     for (const field of requiredFields) {
-        if (!offerData[field]) {
+        if (offerData[field] === undefined || offerData[field] === null) {
             throw new Error(field + " is required in offerData");
         }
     }
     return makeRequest("POST", "/v2/offers", {}, {}, offerData);
 }
 
-module.exports = { getServices, getBrands, getProducts, getProductAttributes, createOffer, makeRequest, generateSignature, G2G_API_CONFIG };
+async function searchOffers(body = {}) {
+    return makeRequest("POST", "/v2/offers/search", {}, {}, body);
+}
+
+async function updateOffer(offerId, body) {
+    if (!offerId) throw new Error("offerId is required");
+    if (!body || typeof body !== "object") throw new Error("body is required");
+    return makeRequest("PATCH", "/v2/offers/" + offerId, {}, {}, body);
+}
+
+module.exports = { getServices, getBrands, getProducts, getProductAttributes, createOffer, searchOffers, updateOffer, makeRequest, generateSignature, G2G_API_CONFIG };

@@ -33,7 +33,7 @@ function parseSteamAccounts(filePath) {
 }
 
 // Parse all accounts
-const accounts = parseSteamAccounts('steam_cis_export.txt');
+const accounts = parseSteamAccounts('steam_accounts.txt');
 console.log(`Loaded ${accounts.length} accounts from file`);
 
 // Parse invite links
