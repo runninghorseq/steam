@@ -7,8 +7,10 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
+    "better-sqlite3": "^12.10.0",
     "crypto-js": "^4.2.0",
-    "steam-user": "^5.0.0"
+    "steam-user": "^5.0.0",
+    "steamcommunity": "^3.50.0"
   },
   "keywords": [],
   "author": "",

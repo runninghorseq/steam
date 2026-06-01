@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Convert acc_steam_hotmail.txt to steam_cis_export.txt format
+ * Convert acc_steam_hotmail.txt to steam_accounts.txt format
  * 
  * Input format:
  *   Username: <username>
@@ -18,7 +18,7 @@ const path = require('path');
  * Convert from acc_steam_hotmail.txt format to CIS export format.
  * 
  * @param {string} inputFile - Path to input file (acc_steam_hotmail.txt)
- * @param {string} outputFile - Path to output file (steam_cis_export.txt)
+ * @param {string} outputFile - Path to output file (steam_accounts.txt)
  */
 function convertFile(inputFile, outputFile) {
     try {
@@ -32,6 +32,7 @@ function convertFile(inputFile, outputFile) {
         function processEntry() {
             if (currentEntry.username && currentEntry.password && currentEntry.email && currentEntry.token !== undefined) {
                 const outputLine = `${currentEntry.username}----${currentEntry.password}----${currentEntry.email}----${currentEntry.token}`;
+                // const outputLine = `${currentEntry.email}|${currentEntry.token}`;
                 outputLines.push(outputLine);
                 currentEntry = {}; // Reset for next entry
             }
@@ -76,7 +77,7 @@ function convertFile(inputFile, outputFile) {
 // Main execution
 if (require.main === module) {
     const inputFile = 'acc_steam_hotmail.txt';
-    const outputFile = 'steam_cis_export.txt';
+    const outputFile = 'steam_accounts.txt';
     
     convertFile(inputFile, outputFile);
 }

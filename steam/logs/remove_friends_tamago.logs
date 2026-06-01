@@ -1,0 +1,1607 @@
+const FRIENDS_TO_REMOVE_BY_NAME = [
+    // 'qf151033', 'tj152862','cw151033','nt152862','sd151033','ff902782','ey227146','lo436229','ju806321','lo024773','yw250534'
+];
+/Users/lequangha/.nvm/versions/node/v23.11.0/bin/node /Users/lequangha/fungaming/steam/steam/remove_friends_by_date.js
+Steam Guard App Code: VQ7F7
+Logged into Steam successfully!
+Your Steam ID: 76561199843236721
+
+=== Account Info ===
+Account Name: undefined
+Profile URL: https://steamcommunity.com/profiles/76561199843236721
+Total friends: 349
+Fetching friend names from API...
+
+=== Checking Friends for Removal ===
+Removing friends added between 7/28/2025 and 11/30/2025 (timestamp >= 1753660800 && timestamp <= 1764460799)
+Lower threshold date: 7/28/2025, 7:00:00 AM
+Upper threshold date: 11/30/2025, 6:59:59 AM
+Friends to remove by name (regardless of date): None
+Friends to keep (exception list): ba949451, ae949471, pb949491, xl949738, vh950960, yk950983, it949285, kw949278, dt946742, qp947176, gf947182, mx947285, sr946848
+
+[1] Friend to remove:
+   Steam ID: 76561198062829805
+   Name: larkhulen
+   Date Added: 8/29/2025, 8:06:27 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/29/2025, 8:06:27 PM)
+[2] Friend to remove:
+   Steam ID: 76561198166495364
+   Name: Berlino
+   Date Added: 8/29/2025, 8:06:30 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/29/2025, 8:06:30 PM)
+[3] Friend to remove:
+   Steam ID: 76561198203811797
+   Name: Lord of The Clown
+   Date Added: 8/14/2025, 8:06:03 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/14/2025, 8:06:03 AM)
+[4] Friend to remove:
+   Steam ID: 76561198303636339
+   Name: Cisco Lobo
+   Date Added: 8/29/2025, 8:06:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/29/2025, 8:06:29 PM)
+[5] Friend to remove:
+   Steam ID: 76561198366449849
+   Name: Gamer depressivo
+   Date Added: 8/29/2025, 8:06:31 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/29/2025, 8:06:31 PM)
+[6] Friend to remove:
+   Steam ID: 76561198397978257
+   Name: ADISON
+   Date Added: 8/29/2025, 8:06:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/29/2025, 8:06:29 PM)
+[7] Keeping friend: selborhabalok9 (added 2/11/2026, 9:10:19 PM)
+[8] Keeping friend: ayarsqpeareodz11 (added 2/11/2026, 9:10:19 PM)
+[9] Keeping friend: radhalringefgb (added 2/11/2026, 9:09:35 PM)
+[10] Keeping friend: kouchsswarn7p23fh (added 2/11/2026, 9:10:19 PM)
+[11] Keeping friend: dueckkkorstzsbzxl (added 2/11/2026, 9:09:37 PM)
+[12] Keeping friend: spesssbohlsufq6b (added 2/11/2026, 9:09:36 PM)
+[13] Keeping friend: birckgpiedevmmb (added 2/11/2026, 9:10:19 PM)
+[14] Keeping friend: ellisrpadel4ypqms (added 2/11/2026, 9:09:36 PM)
+[15] Keeping friend: hirthjmachox750qx (added 2/11/2026, 9:10:19 PM)
+[16] Keeping friend: rohiticlottdm0 (added 2/11/2026, 9:09:37 PM)
+[17] Keeping friend: heissqaudry348fi (added 2/11/2026, 9:09:36 PM)
+[18] Keeping friend: ramusjbumbapvhjza (added 2/11/2026, 9:10:19 PM)
+[19] Keeping friend: hebaneipsenp91b (added 2/11/2026, 9:09:37 PM)
+[20] Keeping friend: cammydsorohaewhz (added 2/11/2026, 9:09:37 PM)
+[21] Keeping friend: shawlsvaulxpyx3th (added 2/11/2026, 9:09:37 PM)
+[22] Keeping friend: tobenklempaa24 (added 2/11/2026, 9:10:19 PM)
+[23] Keeping friend: dolesusicks4f0uc (added 2/11/2026, 9:10:19 PM)
+[24] Keeping friend: lendaielber7v8p (added 2/11/2026, 9:10:19 PM)
+[25] Keeping friend: duroygdentynjhby7 (added 2/11/2026, 9:09:37 PM)
+[26] Keeping friend: danelngolanlf4fb (added 2/11/2026, 9:10:19 PM)
+[27] Keeping friend: alleemlattor7t (added 2/11/2026, 9:10:19 PM)
+[28] Friend to remove:
+   Steam ID: 76561198767564173
+   Name: xd251376
+   Date Added: 11/28/2025, 4:16:09 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:09 PM)
+[29] Friend to remove:
+   Steam ID: 76561198767595668
+   Name: jw251376
+   Date Added: 11/28/2025, 4:16:08 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:08 PM)
+[30] Friend to remove:
+   Steam ID: 76561198767737610
+   Name: re251997
+   Date Added: 11/28/2025, 4:16:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:29 PM)
+[31] Friend to remove:
+   Steam ID: 76561198767749468
+   Name: cd251997
+   Date Added: 11/28/2025, 4:16:09 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:09 PM)
+[32] Friend to remove:
+   Steam ID: 76561198767751179
+   Name: sg251377
+   Date Added: 11/28/2025, 4:16:43 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:43 PM)
+[33] Friend to remove:
+   Steam ID: 76561198767760236
+   Name: jd251997
+   Date Added: 11/28/2025, 4:16:43 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:43 PM)
+[34] Friend to remove:
+   Steam ID: 76561198767761839
+   Name: hx251378
+   Date Added: 11/28/2025, 4:16:43 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:43 PM)
+[35] Friend to remove:
+   Steam ID: 76561198767766636
+   Name: kc250423
+   Date Added: 11/28/2025, 4:16:56 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:56 PM)
+[36] Friend to remove:
+   Steam ID: 76561198767804768
+   Name: zd251377
+   Date Added: 11/28/2025, 4:16:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:29 PM)
+[37] Friend to remove:
+   Steam ID: 76561198767808390
+   Name: cl250422
+   Date Added: 11/28/2025, 4:16:10 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:10 PM)
+[38] Friend to remove:
+   Steam ID: 76561198767815754
+   Name: zy251376
+   Date Added: 11/28/2025, 4:16:09 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:09 PM)
+[39] Friend to remove:
+   Steam ID: 76561198767820519
+   Name: ph251996
+   Date Added: 11/28/2025, 4:16:09 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:09 PM)
+[40] Friend to remove:
+   Steam ID: 76561198767821674
+   Name: uv250423
+   Date Added: 11/28/2025, 4:16:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:29 PM)
+[41] Friend to remove:
+   Steam ID: 76561198767827003
+   Name: on251375
+   Date Added: 11/28/2025, 4:16:09 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:09 PM)
+[42] Friend to remove:
+   Steam ID: 76561198767829226
+   Name: tn251997
+   Date Added: 11/28/2025, 4:16:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:29 PM)
+[43] Friend to remove:
+   Steam ID: 76561198767831749
+   Name: im251377
+   Date Added: 11/28/2025, 4:16:43 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:43 PM)
+[44] Friend to remove:
+   Steam ID: 76561198767846549
+   Name: bg251997
+   Date Added: 11/28/2025, 4:16:43 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:43 PM)
+[45] Friend to remove:
+   Steam ID: 76561198767861325
+   Name: ao251377
+   Date Added: 11/28/2025, 4:16:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:29 PM)
+[46] Friend to remove:
+   Steam ID: 76561198767873726
+   Name: bb251377
+   Date Added: 11/28/2025, 4:16:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:29 PM)
+[47] Friend to remove:
+   Steam ID: 76561198767888954
+   Name: qb251377
+   Date Added: 11/28/2025, 4:16:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:29 PM)
+[48] Friend to remove:
+   Steam ID: 76561198767934179
+   Name: rs250423
+   Date Added: 11/28/2025, 4:16:43 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:43 PM)
+[49] Friend to remove:
+   Steam ID: 76561198768238314
+   Name: qm251376
+   Date Added: 11/28/2025, 4:16:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:29 PM)
+[50] Friend to remove:
+   Steam ID: 76561198768289389
+   Name: br251378
+   Date Added: 11/28/2025, 4:16:56 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:56 PM)
+[51] Friend to remove:
+   Steam ID: 76561198768332495
+   Name: gq251378
+   Date Added: 11/28/2025, 4:16:43 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:43 PM)
+[52] Friend to remove:
+   Steam ID: 76561198768634260
+   Name: oj251996
+   Date Added: 11/28/2025, 4:16:09 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:09 PM)
+[53] Friend to remove:
+   Steam ID: 76561198768748468
+   Name: sk251376
+   Date Added: 11/28/2025, 4:16:10 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:10 PM)
+[54] Friend to remove:
+   Steam ID: 76561198768982913
+   Name: ro251378
+   Date Added: 11/28/2025, 4:16:56 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:56 PM)
+[55] Friend to remove:
+   Steam ID: 76561198769011778
+   Name: cm250423
+   Date Added: 11/28/2025, 4:16:43 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:43 PM)
+[56] Friend to remove:
+   Steam ID: 76561198769019333
+   Name: ua251996
+   Date Added: 11/28/2025, 4:16:09 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:09 PM)
+[57] Friend to remove:
+   Steam ID: 76561198769455977
+   Name: yk251997
+   Date Added: 11/28/2025, 4:16:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:29 PM)
+[58] Friend to remove:
+   Steam ID: 76561198769468077
+   Name: jo251997
+   Date Added: 11/28/2025, 4:16:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:29 PM)
+[59] Friend to remove:
+   Steam ID: 76561198769474378
+   Name: jp251998
+   Date Added: 11/28/2025, 4:16:55 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:55 PM)
+[60] Friend to remove:
+   Steam ID: 76561198769487787
+   Name: yf251376
+   Date Added: 11/28/2025, 4:16:09 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:09 PM)
+[61] Friend to remove:
+   Steam ID: 76561198769488218
+   Name: xp251376
+   Date Added: 11/28/2025, 4:16:08 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:08 PM)
+[62] Friend to remove:
+   Steam ID: 76561198769493003
+   Name: by250420
+   Date Added: 11/28/2025, 4:16:43 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:43 PM)
+[63] Friend to remove:
+   Steam ID: 76561198769511548
+   Name: hj251377
+   Date Added: 11/28/2025, 4:16:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:29 PM)
+[64] Friend to remove:
+   Steam ID: 76561198769512123
+   Name: ks251377
+   Date Added: 11/28/2025, 4:16:43 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:43 PM)
+[65] Friend to remove:
+   Steam ID: 76561198769528308
+   Name: cp250422
+   Date Added: 11/28/2025, 4:16:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:29 PM)
+[66] Friend to remove:
+   Steam ID: 76561198769549396
+   Name: jv250423
+   Date Added: 11/28/2025, 4:16:43 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:43 PM)
+[67] Friend to remove:
+   Steam ID: 76561198769551551
+   Name: ya250422
+   Date Added: 11/28/2025, 4:16:10 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:10 PM)
+[68] Friend to remove:
+   Steam ID: 76561198769572898
+   Name: sd250423
+   Date Added: 11/28/2025, 4:16:43 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:43 PM)
+[69] Friend to remove:
+   Steam ID: 76561198769640546
+   Name: mv250423
+   Date Added: 11/28/2025, 4:16:43 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:43 PM)
+[70] Friend to remove:
+   Steam ID: 76561198769644612
+   Name: uw251377
+   Date Added: 11/28/2025, 4:16:43 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:43 PM)
+[71] Friend to remove:
+   Steam ID: 76561198769662859
+   Name: zq250422
+   Date Added: 11/28/2025, 4:16:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:29 PM)
+[72] Friend to remove:
+   Steam ID: 76561198769830365
+   Name: yh251376
+   Date Added: 11/28/2025, 4:16:10 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:10 PM)
+[73] Friend to remove:
+   Steam ID: 76561198770268787
+   Name: un250422
+   Date Added: 11/28/2025, 4:16:43 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:43 PM)
+[74] Friend to remove:
+   Steam ID: 76561198770447352
+   Name: rc251376
+   Date Added: 11/28/2025, 4:16:09 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:09 PM)
+[75] Friend to remove:
+   Steam ID: 76561198770610469
+   Name: frieda14752pat1984
+   Date Added: 11/28/2025, 4:21:49 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:21:49 PM)
+[76] Friend to remove:
+   Steam ID: 76561198770706129
+   Name: hilary3783sonja1998
+   Date Added: 11/28/2025, 4:21:09 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:21:09 PM)
+[77] Friend to remove:
+   Steam ID: 76561198770706401
+   Name: clarice2181glenda1987
+   Date Added: 11/28/2025, 4:22:27 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:22:27 PM)
+[78] Friend to remove:
+   Steam ID: 76561198770707133
+   Name: lk251997
+   Date Added: 11/28/2025, 4:16:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:29 PM)
+[79] Friend to remove:
+   Steam ID: 76561198770721866
+   Name: lorna16388inez2000
+   Date Added: 11/28/2025, 4:23:25 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:23:25 PM)
+[80] Friend to remove:
+   Steam ID: 76561198770726554
+   Name: staci15493leona1988
+   Date Added: 11/28/2025, 4:21:49 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:21:49 PM)
+[81] Friend to remove:
+   Steam ID: 76561198770769403
+   Name: cherie14279georgia1986
+   Date Added: 11/28/2025, 4:21:49 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:21:49 PM)
+[82] Friend to remove:
+   Steam ID: 76561198770805835
+   Name: sandycassie1198720
+   Date Added: 11/28/2025, 4:21:49 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:21:49 PM)
+[83] Friend to remove:
+   Steam ID: 76561198770824437
+   Name: leanne23328eula1984
+   Date Added: 11/28/2025, 4:11:46 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:46 PM)
+[84] Friend to remove:
+   Steam ID: 76561198770850338
+   Name: marcy26241marguerite1986
+   Date Added: 11/28/2025, 4:22:27 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:22:27 PM)
+[85] Friend to remove:
+   Steam ID: 76561198770892172
+   Name: carmela17982erma2000
+   Date Added: 11/28/2025, 4:21:09 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:21:09 PM)
+[86] Friend to remove:
+   Steam ID: 76561198770937141
+   Name: alisondina16198816
+   Date Added: 11/28/2025, 4:11:46 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:46 PM)
+[87] Friend to remove:
+   Steam ID: 76561198770940759
+   Name: lucile16737elsa1981
+   Date Added: 11/28/2025, 4:19:50 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:19:50 PM)
+[88] Friend to remove:
+   Steam ID: 76561198770973351
+   Name: beckyjocelyn22199623
+   Date Added: 11/28/2025, 4:11:18 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:18 PM)
+[89] Friend to remove:
+   Steam ID: 76561198770980280
+   Name: emilia17400essie1996
+   Date Added: 11/28/2025, 4:11:19 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:19 PM)
+[90] Friend to remove:
+   Steam ID: 76561198771044634
+   Name: elma23829blanca1994
+   Date Added: 11/28/2025, 4:11:19 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:19 PM)
+[91] Friend to remove:
+   Steam ID: 76561198771065433
+   Name: katedebora22199025
+   Date Added: 11/28/2025, 4:11:46 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:46 PM)
+[92] Friend to remove:
+   Steam ID: 76561198771070667
+   Name: rosalielorna16200012
+   Date Added: 11/28/2025, 4:11:18 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:18 PM)
+[93] Friend to remove:
+   Steam ID: 76561198771071253
+   Name: ursula12609claire1997
+   Date Added: 11/28/2025, 4:19:50 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:19:50 PM)
+[94] Friend to remove:
+   Steam ID: 76561198771081726
+   Name: tr250421
+   Date Added: 11/28/2025, 4:16:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:29 PM)
+[95] Friend to remove:
+   Steam ID: 76561198771111216
+   Name: nell12910sadie2001
+   Date Added: 11/28/2025, 4:11:18 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:18 PM)
+[96] Friend to remove:
+   Steam ID: 76561198771139462
+   Name: elise25720celia1995
+   Date Added: 11/28/2025, 4:21:49 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:21:49 PM)
+[97] Friend to remove:
+   Steam ID: 76561198771224610
+   Name: daisycathleen13199823
+   Date Added: 11/28/2025, 4:11:18 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:18 PM)
+[98] Friend to remove:
+   Steam ID: 76561198771274018
+   Name: lorie9483marguerite2001
+   Date Added: 11/28/2025, 4:11:18 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:18 PM)
+[99] Friend to remove:
+   Steam ID: 76561198771279746
+   Name: desireeconsuelo26200116
+   Date Added: 11/28/2025, 4:11:19 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:19 PM)
+[100] Friend to remove:
+   Steam ID: 76561198771376637
+   Name: gingerjaclyn20198723
+   Date Added: 11/28/2025, 4:11:19 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:19 PM)
+[101] Friend to remove:
+   Steam ID: 76561198771451748
+   Name: xx251998
+   Date Added: 11/28/2025, 4:16:56 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:16:56 PM)
+[102] Friend to remove:
+   Steam ID: 76561198771910341
+   Name: catalina26197vickie1998
+   Date Added: 11/28/2025, 4:11:46 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:46 PM)
+[103] Friend to remove:
+   Steam ID: 76561198772037119
+   Name: jodysusanne23198921
+   Date Added: 11/28/2025, 4:11:19 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:19 PM)
+[104] Friend to remove:
+   Steam ID: 76561198772167937
+   Name: ester20408kendra1990
+   Date Added: 11/28/2025, 4:23:25 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:23:25 PM)
+[105] Friend to remove:
+   Steam ID: 76561198772396582
+   Name: charityclaudia199216788
+   Date Added: 11/28/2025, 4:21:49 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:21:49 PM)
+[106] Friend to remove:
+   Steam ID: 76561198772503798
+   Name: marisa11775lorena1994
+   Date Added: 11/28/2025, 4:22:27 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:22:27 PM)
+[107] Friend to remove:
+   Steam ID: 76561198772595742
+   Name: leonageorgina219952
+   Date Added: 11/28/2025, 4:19:50 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:19:50 PM)
+[108] Friend to remove:
+   Steam ID: 76561198772629346
+   Name: josie6317lola1995
+   Date Added: 11/28/2025, 4:19:50 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:19:50 PM)
+[109] Friend to remove:
+   Steam ID: 76561198772672682
+   Name: lidia8695olivia1984
+   Date Added: 11/28/2025, 4:19:50 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:19:50 PM)
+[110] Friend to remove:
+   Steam ID: 76561198772716608
+   Name: audra21464jodi1991
+   Date Added: 11/28/2025, 4:11:46 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:46 PM)
+[111] Friend to remove:
+   Steam ID: 76561198772740094
+   Name: jami18566latoya1993
+   Date Added: 11/28/2025, 4:19:50 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:19:50 PM)
+[112] Friend to remove:
+   Steam ID: 76561198772905059
+   Name: hattieaudra20199221
+   Date Added: 11/28/2025, 4:11:19 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:19 PM)
+[113] Friend to remove:
+   Steam ID: 76561198772919299
+   Name: summer1058lindsey1999
+   Date Added: 11/28/2025, 4:11:19 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:19 PM)
+[114] Friend to remove:
+   Steam ID: 76561198772966168
+   Name: marylou274deanna1985
+   Date Added: 11/28/2025, 4:11:19 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:19 PM)
+[115] Friend to remove:
+   Steam ID: 76561198773287579
+   Name: jodie24919felicia1990
+   Date Added: 11/28/2025, 4:11:19 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:19 PM)
+[116] Friend to remove:
+   Steam ID: 76561198773287996
+   Name: janine6565kate1992
+   Date Added: 11/28/2025, 4:11:19 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:11:19 PM)
+[117] Friend to remove:
+   Steam ID: 76561198773900665
+   Name: lara24640myrtle1982
+   Date Added: 11/28/2025, 4:21:49 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (11/28/2025, 4:21:49 PM)
+[118] Friend to remove:
+   Steam ID: 76561198789780088
+   Name: wirtzhmunaz0az3k4
+   Date Added: 9/4/2025, 5:44:07 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:44:07 AM)
+[119] Friend to remove:
+   Steam ID: 76561198789794030
+   Name: mitroxzabenlo3jx
+   Date Added: 9/4/2025, 5:44:11 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:44:11 AM)
+[120] Friend to remove:
+   Steam ID: 76561198789797288
+   Name: lyndswfiorab29
+   Date Added: 9/4/2025, 5:44:07 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:44:07 AM)
+[121] Friend to remove:
+   Steam ID: 76561198789805353
+   Name: fuhrybruthsre7
+   Date Added: 9/4/2025, 5:44:02 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:44:02 AM)
+[122] Friend to remove:
+   Steam ID: 76561198789810692
+   Name: braethbialkfqkw
+   Date Added: 9/4/2025, 5:43:58 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:43:58 AM)
+[123] Friend to remove:
+   Steam ID: 76561198789826945
+   Name: molinipichtt13
+   Date Added: 9/4/2025, 5:43:57 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:43:57 AM)
+[124] Friend to remove:
+   Steam ID: 76561198789833434
+   Name: brineljanosqttnfv
+   Date Added: 9/4/2025, 5:44:01 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:44:01 AM)
+[125] Friend to remove:
+   Steam ID: 76561198789833700
+   Name: haferzfulpswxsenq
+   Date Added: 9/4/2025, 5:44:10 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:44:10 AM)
+[126] Friend to remove:
+   Steam ID: 76561198789856666
+   Name: falenpboyanfrm6
+   Date Added: 9/4/2025, 5:44:06 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:44:06 AM)
+[127] Friend to remove:
+   Steam ID: 76561198789869819
+   Name: streiazulch2io
+   Date Added: 9/4/2025, 5:44:04 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:44:04 AM)
+[128] Friend to remove:
+   Steam ID: 76561198789882995
+   Name: mensotpyryt66ds
+   Date Added: 9/4/2025, 5:43:57 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:43:57 AM)
+[129] Friend to remove:
+   Steam ID: 76561198789894271
+   Name: denyszschegh21nb
+   Date Added: 9/4/2025, 5:44:08 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:44:08 AM)
+[130] Friend to remove:
+   Steam ID: 76561198789898403
+   Name: benzacnorend2i
+   Date Added: 9/4/2025, 5:44:05 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:44:05 AM)
+[131] Friend to remove:
+   Steam ID: 76561198790730472
+   Name: bimbofrosinpk1g9
+   Date Added: 9/1/2025, 7:20:37 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:37 AM)
+[132] Friend to remove:
+   Steam ID: 76561198790731256
+   Name: littyqhnydaknc4
+   Date Added: 9/1/2025, 7:20:36 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:36 AM)
+[133] Friend to remove:
+   Steam ID: 76561198790763395
+   Name: radioyroepepii
+   Date Added: 9/1/2025, 7:20:32 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:32 AM)
+[134] Friend to remove:
+   Steam ID: 76561198790769632
+   Name: benzihgabayi8n
+   Date Added: 9/1/2025, 7:20:36 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:36 AM)
+[135] Friend to remove:
+   Steam ID: 76561198790772368
+   Name: tarzidceydapd5
+   Date Added: 9/1/2025, 7:20:33 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:33 AM)
+[136] Skipping friend: Unknown (no friend_since data available and not in any list)
+[137] Friend to remove:
+   Steam ID: 76561198791033260
+   Name: prileyamial0dev
+   Date Added: 9/1/2025, 7:20:38 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:38 AM)
+[138] Friend to remove:
+   Steam ID: 76561198791063912
+   Name: combsqbailsyg3
+   Date Added: 9/1/2025, 7:20:38 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:38 AM)
+[139] Friend to remove:
+   Steam ID: 76561198791072067
+   Name: ludinzdavieae9e
+   Date Added: 9/1/2025, 7:20:40 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:40 AM)
+[140] Friend to remove:
+   Steam ID: 76561198791075084
+   Name: terzippadrouvkk1
+   Date Added: 9/1/2025, 7:20:41 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:41 AM)
+[141] Friend to remove:
+   Steam ID: 76561198791095721
+   Name: wehbyukasic4guls
+   Date Added: 9/1/2025, 7:20:42 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:42 AM)
+[142] Friend to remove:
+   Steam ID: 76561198791101742
+   Name: zaimiuvondyfki
+   Date Added: 9/1/2025, 7:20:39 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:39 AM)
+[143] Friend to remove:
+   Steam ID: 76561198791129265
+   Name: frinkgdemro3v44
+   Date Added: 8/30/2025, 8:24:23 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:23 PM)
+[144] Friend to remove:
+   Steam ID: 76561198791202809
+   Name: gradyatardo3fibq
+   Date Added: 8/30/2025, 8:24:23 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:23 PM)
+[145] Friend to remove:
+   Steam ID: 76561198791219496
+   Name: firerlkonek5s1e
+   Date Added: 8/30/2025, 8:24:30 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:30 PM)
+[146] Friend to remove:
+   Steam ID: 76561198791222310
+   Name: heralzmeauxzpvx
+   Date Added: 8/30/2025, 8:24:26 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:26 PM)
+[147] Friend to remove:
+   Steam ID: 76561198791240814
+   Name: DavidPlaysGames
+   Date Added: 8/30/2025, 8:24:25 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:25 PM)
+[148] Friend to remove:
+   Steam ID: 76561198791246277
+   Name: sniffxgroysms18b
+   Date Added: 8/30/2025, 8:24:27 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:27 PM)
+[149] Friend to remove:
+   Steam ID: 76561198791248950
+   Name: petelacrampdgf
+   Date Added: 8/30/2025, 8:24:24 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:24 PM)
+[150] Friend to remove:
+   Steam ID: 76561198791267817
+   Name: vakosqlaliczxf3
+   Date Added: 8/30/2025, 8:24:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:29 PM)
+[151] Friend to remove:
+   Steam ID: 76561198791290411
+   Name: asaadeaaravfienp
+   Date Added: 8/30/2025, 8:24:25 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:25 PM)
+[152] Friend to remove:
+   Steam ID: 76561198791365076
+   Name: wahbagcraan9fxgsy
+   Date Added: 8/30/2025, 8:24:30 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:30 PM)
+[153] Friend to remove:
+   Steam ID: 76561198791458925
+   Name: naneyiplatz347
+   Date Added: 9/4/2025, 5:44:02 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:44:02 AM)
+[154] Friend to remove:
+   Steam ID: 76561198791528278
+   Name: korpizlovehg27k2
+   Date Added: 9/1/2025, 7:20:35 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:35 AM)
+[155] Friend to remove:
+   Steam ID: 76561198791536538
+   Name: knaulldears71wr3d
+   Date Added: 9/4/2025, 5:43:58 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:43:58 AM)
+[156] Friend to remove:
+   Steam ID: 76561198791570153
+   Name: kipleopiella35
+   Date Added: 9/4/2025, 5:44:01 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/4/2025, 5:44:01 AM)
+[157] Friend to remove:
+   Steam ID: 76561198791897579
+   Name: kumaizrudrafdqe3
+   Date Added: 9/1/2025, 7:20:40 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:40 AM)
+[158] Friend to remove:
+   Steam ID: 76561198792047181
+   Name: taweswbouvyj5nf
+   Date Added: 8/30/2025, 8:24:24 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:24 PM)
+[159] Friend to remove:
+   Steam ID: 76561198802638596
+   Name: darius_mcnoxus
+   Date Added: 8/29/2025, 8:06:28 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/29/2025, 8:06:28 PM)
+[160] Friend to remove:
+   Steam ID: 76561198807727550
+   Name: ! Sreq
+   Date Added: 8/29/2025, 8:06:28 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/29/2025, 8:06:28 PM)
+[161] Friend to remove:
+   Steam ID: 76561198826640628
+   Name: Awesomo23
+   Date Added: 8/29/2025, 8:06:27 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/29/2025, 8:06:27 PM)
+[162] Friend to remove:
+   Steam ID: 76561199040884409
+   Name: ssaralewin
+   Date Added: 8/29/2025, 8:06:31 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/29/2025, 8:06:31 PM)
+[163] Friend to remove:
+   Steam ID: 76561199044338188
+   Name: haktanyuruk00
+   Date Added: 8/29/2025, 8:06:28 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/29/2025, 8:06:28 PM)
+[164] Keeping friend: rc527407 (added 2/22/2026, 4:44:17 PM)
+[165] Keeping friend: wisseK (added 5/21/2025, 11:30:31 PM)
+[166] Friend to remove:
+   Steam ID: 76561199416616834
+   Name: fugaquangchung92
+   Date Added: 8/7/2025, 11:27:00 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/7/2025, 11:27:00 AM)
+[167] Friend to remove:
+   Steam ID: 76561199566828198
+   Name: tvqbkfrf6
+   Date Added: 8/28/2025, 9:23:31 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 9:23:31 AM)
+[168] Friend to remove:
+   Steam ID: 76561199670774185
+   Name: 76561199670774185
+   Date Added: 8/26/2025, 3:03:06 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/26/2025, 3:03:06 PM)
+[169] Friend to remove:
+   Steam ID: 76561199703914511
+   Name: hwawangm77
+   Date Added: 8/27/2025, 6:44:21 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 6:44:21 AM)
+[170] Friend to remove:
+   Steam ID: 76561199704042243
+   Name: bensonchelsey
+   Date Added: 8/27/2025, 6:44:19 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 6:44:19 AM)
+[171] Friend to remove:
+   Steam ID: 76561199704488179
+   Name: jenevaborgen199334
+   Date Added: 8/27/2025, 6:44:19 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 6:44:19 AM)
+[172] Friend to remove:
+   Steam ID: 76561199704932687
+   Name: jenellz9ctmeier
+   Date Added: 8/27/2025, 6:44:20 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 6:44:20 AM)
+[173] Friend to remove:
+   Steam ID: 76561199705087211
+   Name: chjacquline8888
+   Date Added: 8/27/2025, 6:44:20 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 6:44:20 AM)
+[174] Friend to remove:
+   Steam ID: 76561199705296519
+   Name: Dragonfly
+   Date Added: 8/27/2025, 6:44:22 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 6:44:22 AM)
+[175] Friend to remove:
+   Steam ID: 76561199705496954
+   Name: steshinn7e
+   Date Added: 8/27/2025, 6:44:21 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 6:44:21 AM)
+[176] Friend to remove:
+   Steam ID: 76561199705645887
+   Name: chyaocaguayo
+   Date Added: 8/27/2025, 6:44:16 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 6:44:16 AM)
+[177] Friend to remove:
+   Steam ID: 76561199705718273
+   Name: jackieopvenewsom
+   Date Added: 8/27/2025, 6:44:18 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 6:44:18 AM)
+[178] Friend to remove:
+   Steam ID: 76561199705721385
+   Name: susan3x_boltonhn
+   Date Added: 8/27/2025, 6:44:22 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 6:44:22 AM)
+[179] Keeping friend: skrilled (added 5/21/2025, 8:16:36 PM)
+[180] Friend to remove:
+   Steam ID: 76561199782377685
+   Name: cm825381
+   Date Added: 8/31/2025, 9:47:35 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/31/2025, 9:47:35 AM)
+[181] Friend to remove:
+   Steam ID: 76561199830021827
+   Name: sanemdemirahit
+   Date Added: 8/20/2025, 7:45:45 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/20/2025, 7:45:45 AM)
+[182] Keeping friend: Крутойкиллер2016 (added 5/18/2025, 11:50:35 PM)
+[183] Friend to remove:
+   Steam ID: 76561199857378957
+   Name: rv952895
+   Date Added: 8/28/2025, 4:51:47 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 4:51:47 PM)
+[184] Friend to remove:
+   Steam ID: 76561199857483846
+   Name: ji950846
+   Date Added: 8/17/2025, 12:25:25 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/17/2025, 12:25:25 PM)
+[185] Friend to remove:
+   Steam ID: 76561199857503559
+   Name: lk947271
+   Date Added: 8/31/2025, 9:47:29 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/31/2025, 9:47:29 AM)
+[186] Friend to remove:
+   Steam ID: 76561199857663855
+   Name: yy949679
+   Date Added: 8/7/2025, 11:17:39 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/7/2025, 11:17:39 AM)
+[187] Friend to remove:
+   Steam ID: 76561199857664286
+   Name: qp949814
+   Date Added: 8/17/2025, 11:38:45 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/17/2025, 11:38:45 AM)
+[188] Friend to remove:
+   Steam ID: 76561199857735913
+   Name: ii949843
+   Date Added: 8/17/2025, 12:21:32 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/17/2025, 12:21:32 PM)
+[189] Friend to remove:
+   Steam ID: 76561199857791995
+   Name: cb951057
+   Date Added: 8/25/2025, 9:27:15 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/25/2025, 9:27:15 AM)
+[190] Friend to remove:
+   Steam ID: 76561199857829981
+   Name: dq949753
+   Date Added: 8/7/2025, 11:15:57 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/7/2025, 11:15:57 AM)
+[191] Friend to remove:
+   Steam ID: 76561199857832136
+   Name: na951016
+   Date Added: 8/25/2025, 9:27:17 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/25/2025, 9:27:17 AM)
+[192] Friend to remove:
+   Steam ID: 76561199857946212
+   Name: yx949793
+   Date Added: 8/17/2025, 11:23:50 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/17/2025, 11:23:50 AM)
+[193] Friend to remove:
+   Steam ID: 76561199857998361
+   Name: xa946739
+   Date Added: 8/31/2025, 9:47:38 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/31/2025, 9:47:38 AM)
+[194] Friend to remove:
+   Steam ID: 76561199858042239
+   Name: zy951039
+   Date Added: 8/25/2025, 9:27:16 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/25/2025, 9:27:16 AM)
+[195] Friend to remove:
+   Steam ID: 76561199858078157
+   Name: xw951161
+   Date Added: 8/27/2025, 8:00:13 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 8:00:13 AM)
+[196] Keeping friend: uh949187 (added 2/11/2026, 8:37:41 AM)
+[197] Friend to remove:
+   Steam ID: 76561199858124294
+   Name: gs947249
+   Date Added: 8/31/2025, 9:47:30 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/31/2025, 9:47:30 AM)
+[198] Keeping friend: kw949278 (in keep list, added 8/27/2025, 8:00:17 AM)
+[199] Friend to remove:
+   Steam ID: 76561199858126831
+   Name: qv951159
+   Date Added: 8/27/2025, 8:00:12 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 8:00:12 AM)
+[200] Keeping friend: kk949215 (added 2/11/2026, 8:37:41 AM)
+[201] Friend to remove:
+   Steam ID: 76561199858136324
+   Name: zl949643
+   Date Added: 8/26/2025, 3:16:39 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/26/2025, 3:16:39 PM)
+[202] Friend to remove:
+   Steam ID: 76561199858141815
+   Name: ug952789
+   Date Added: 8/30/2025, 11:27:11 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 11:27:11 AM)
+[203] Friend to remove:
+   Steam ID: 76561199858160295
+   Name: wv951147
+   Date Added: 8/27/2025, 8:00:13 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 8:00:13 AM)
+[204] Friend to remove:
+   Steam ID: 76561199858189887
+   Name: zm952919
+   Date Added: 8/28/2025, 4:51:46 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 4:51:46 PM)
+[205] Skipping friend: Unknown (no friend_since data available and not in any list)
+[206] Friend to remove:
+   Steam ID: 76561199858217743
+   Name: vh947205
+   Date Added: 8/31/2025, 9:47:32 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/31/2025, 9:47:32 AM)
+[207] Friend to remove:
+   Steam ID: 76561199858224210
+   Name: ed952804
+   Date Added: 8/30/2025, 11:27:11 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 11:27:11 AM)
+[208] Skipping friend: Unknown (no friend_since data available and not in any list)
+[209] Friend to remove:
+   Steam ID: 76561199858252875
+   Name: se952923
+   Date Added: 8/28/2025, 4:51:47 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 4:51:47 PM)
+[210] Friend to remove:
+   Steam ID: 76561199858326904
+   Name: pc949767
+   Date Added: 8/17/2025, 11:40:22 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/17/2025, 11:40:22 AM)
+[211] Skipping friend: Unknown (no friend_since data available and not in any list)
+[212] Friend to remove:
+   Steam ID: 76561199858334744
+   Name: ji949510
+   Date Added: 8/28/2025, 10:41:19 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 10:41:19 AM)
+[213] Friend to remove:
+   Steam ID: 76561199858351198
+   Name: qr949716
+   Date Added: 8/7/2025, 11:16:06 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/7/2025, 11:16:06 AM)
+[214] Friend to remove:
+   Steam ID: 76561199858353755
+   Name: fs950998
+   Date Added: 8/25/2025, 9:27:05 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/25/2025, 9:27:05 AM)
+[215] Friend to remove:
+   Steam ID: 76561199858380063
+   Name: rd950883
+   Date Added: 8/17/2025, 8:29:36 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/17/2025, 8:29:36 PM)
+[216] Friend to remove:
+   Steam ID: 76561199858404393
+   Name: fr949544
+   Date Added: 8/6/2025, 3:25:08 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/6/2025, 3:25:08 PM)
+[217] Friend to remove:
+   Steam ID: 76561199858412360
+   Name: co947268
+   Date Added: 8/31/2025, 9:47:31 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/31/2025, 9:47:31 AM)
+[218] Keeping friend: pb949491 (in keep list, added 8/28/2025, 10:36:57 AM)
+[219] Friend to remove:
+   Steam ID: 76561199858458053
+   Name: FlameMlem
+   Date Added: 8/27/2025, 8:00:15 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 8:00:15 AM)
+[220] Friend to remove:
+   Steam ID: 76561199858459026
+   Name: dq949832
+   Date Added: 8/17/2025, 11:45:02 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/17/2025, 11:45:02 AM)
+[221] Friend to remove:
+   Steam ID: 76561199858463386
+   Name: cn946982
+   Date Added: 8/28/2025, 8:20:04 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 8:20:04 AM)
+[222] Friend to remove:
+   Steam ID: 76561199858470991
+   Name: ml951091
+   Date Added: 8/27/2025, 8:00:16 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 8:00:16 AM)
+[223] Keeping friend: #ради неё 1337 (added 2/11/2026, 8:37:41 AM)
+[224] Friend to remove:
+   Steam ID: 76561199858542702
+   Name: ut946996
+   Date Added: 8/28/2025, 8:20:04 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 8:20:04 AM)
+[225] Friend to remove:
+   Steam ID: 76561199858560856
+   Name: zl952864
+   Date Added: 8/28/2025, 4:51:49 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 4:51:49 PM)
+[226] Friend to remove:
+   Steam ID: 76561199858568160
+   Name: cb951078
+   Date Added: 8/25/2025, 9:26:40 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/25/2025, 9:26:40 AM)
+[227] Keeping friend: az949242 (added 2/11/2026, 8:37:40 AM)
+[228] Skipping friend: Unknown (no friend_since data available and not in any list)
+[229] Keeping friend: hg949252 (added 2/11/2026, 8:37:41 AM)
+[230] Friend to remove:
+   Steam ID: 76561199858612422
+   Name: qp949866
+   Date Added: 8/17/2025, 12:23:58 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/17/2025, 12:23:58 PM)
+[231] Friend to remove:
+   Steam ID: 76561199858629298
+   Name: xw947221
+   Date Added: 8/31/2025, 9:47:31 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/31/2025, 9:47:31 AM)
+[232] Friend to remove:
+   Steam ID: 76561199858631453
+   Name: ht951047
+   Date Added: 8/25/2025, 9:27:13 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/25/2025, 9:27:13 AM)
+[233] Friend to remove:
+   Steam ID: 76561199858636052
+   Name: wv951024
+   Date Added: 8/25/2025, 9:27:15 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/25/2025, 9:27:15 AM)
+[234] Friend to remove:
+   Steam ID: 76561199858658765
+   Name: zy947019
+   Date Added: 8/28/2025, 8:20:03 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 8:20:03 AM)
+[235] Friend to remove:
+   Steam ID: 76561199858679246
+   Name: nz952829
+   Date Added: 8/30/2025, 11:27:10 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 11:27:10 AM)
+[236] Keeping friend: ba949451 (in keep list, added 8/28/2025, 10:35:08 AM)
+[237] Friend to remove:
+   Steam ID: 76561199858714842
+   Name: Quokkaa
+   Date Added: 8/25/2025, 9:27:14 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/25/2025, 9:27:14 AM)
+[238] Keeping friend: fr949170 (added 2/11/2026, 8:37:40 AM)
+[239] Friend to remove:
+   Steam ID: 76561199858720430
+   Name: nz952880
+   Date Added: 8/28/2025, 4:51:48 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 4:51:48 PM)
+[240] Friend to remove:
+   Steam ID: 76561199858760155
+   Name: ba949431
+   Date Added: 8/28/2025, 10:33:53 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 10:33:53 AM)
+[241] Skipping friend: Unknown (no friend_since data available and not in any list)
+[242] Friend to remove:
+   Steam ID: 76561199858778874
+   Name: nz952853
+   Date Added: 8/28/2025, 4:51:49 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 4:51:49 PM)
+[243] Friend to remove:
+   Steam ID: 76561199858790254
+   Name: vu952905
+   Date Added: 8/28/2025, 4:51:47 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 4:51:47 PM)
+[244] Friend to remove:
+   Steam ID: 76561199858790658
+   Name: potato J
+   Date Added: 8/27/2025, 8:00:24 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 8:00:24 AM)
+[245] Friend to remove:
+   Steam ID: 76561199858809120
+   Name: se951111
+   Date Added: 8/27/2025, 8:00:15 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 8:00:15 AM)
+[246] Friend to remove:
+   Steam ID: 76561199858810844
+   Name: po952795
+   Date Added: 8/30/2025, 11:27:12 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 11:27:12 AM)
+[247] Friend to remove:
+   Steam ID: 76561199858811403
+   Name: vt946975
+   Date Added: 8/28/2025, 8:20:05 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 8:20:05 AM)
+[248] Friend to remove:
+   Steam ID: 76561199858844887
+   Name: nm949820
+   Date Added: 8/17/2025, 11:43:57 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/17/2025, 11:43:57 AM)
+[249] Skipping friend: Unknown (no friend_since data available and not in any list)
+[250] Keeping friend: zl949327 (added 2/11/2026, 8:37:41 AM)
+[251] Friend to remove:
+   Steam ID: 76561199858880096
+   Name: ih952726
+   Date Added: 8/28/2025, 4:51:46 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 4:51:46 PM)
+[252] Friend to remove:
+   Steam ID: 76561199858882352
+   Name: rr952877
+   Date Added: 8/28/2025, 4:51:48 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 4:51:48 PM)
+[253] Friend to remove:
+   Steam ID: 76561199858893056
+   Name: xj946957
+   Date Added: 8/28/2025, 8:20:06 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 8:20:06 AM)
+[254] Friend to remove:
+   Steam ID: 76561199858896504
+   Name: ts951084
+   Date Added: 8/27/2025, 8:00:16 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 8:00:16 AM)
+[255] Skipping friend: Unknown (no friend_since data available and not in any list)
+[256] Friend to remove:
+   Steam ID: 76561199859055236
+   Name: qp952817
+   Date Added: 8/30/2025, 11:27:10 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 11:27:10 AM)
+[257] Friend to remove:
+   Steam ID: 76561199859066566
+   Name: rq952947
+   Date Added: 8/28/2025, 4:51:46 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 4:51:46 PM)
+[258] Keeping friend: mx947285 (in keep list, added 8/31/2025, 9:47:28 AM)
+[259] Friend to remove:
+   Steam ID: 76561199859096801
+   Name: tf946937
+   Date Added: 8/28/2025, 8:20:07 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 8:20:07 AM)
+[260] Friend to remove:
+   Steam ID: 76561199859097232
+   Name: my947004
+   Date Added: 8/28/2025, 8:20:04 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 8:20:04 AM)
+[261] Keeping friend: ae949471 (in keep list, added 8/28/2025, 10:35:45 AM)
+[262] Friend to remove:
+   Steam ID: 76561199859114747
+   Name: rd949856
+   Date Added: 8/17/2025, 12:22:44 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/17/2025, 12:22:44 PM)
+[263] Keeping friend: yc949700 (added 12/19/2025, 1:57:29 PM)
+[264] Friend to remove:
+   Steam ID: 76561199859224190
+   Name: xw947215
+   Date Added: 8/31/2025, 9:47:32 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/31/2025, 9:47:32 AM)
+[265] Friend to remove:
+   Steam ID: 76561199859229855
+   Name: qc947255
+   Date Added: 8/31/2025, 9:47:30 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/31/2025, 9:47:30 AM)
+[266] Skipping friend: Unknown (no friend_since data available and not in any list)
+[267] Friend to remove:
+   Steam ID: 76561199859345273
+   Name: ed951130
+   Date Added: 8/27/2025, 8:00:14 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 8:00:14 AM)
+[268] Friend to remove:
+   Steam ID: 76561199859360182
+   Name: ji949800
+   Date Added: 8/17/2025, 11:42:53 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/17/2025, 11:42:53 AM)
+[269] Friend to remove:
+   Steam ID: 76561199859428940
+   Name: sw949264
+   Date Added: 8/27/2025, 8:00:25 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/27/2025, 8:00:25 AM)
+[270] Friend to remove:
+   Steam ID: 76561199859432651
+   Name: gs946941
+   Date Added: 8/28/2025, 8:20:06 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 8:20:06 AM)
+[271] Friend to remove:
+   Steam ID: 76561199859479392
+   Name: qc951000
+   Date Added: 8/25/2025, 9:27:17 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/25/2025, 9:27:17 AM)
+[272] Skipping friend: Unknown (no friend_since data available and not in any list)
+[273] Friend to remove:
+   Steam ID: 76561199859530101
+   Name: ii950866
+   Date Added: 8/17/2025, 8:22:32 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/17/2025, 8:22:32 PM)
+[274] Keeping friend: tp751825 (added 12/12/2025, 7:14:36 AM)
+[275] Keeping friend: vl751839 (added 12/12/2025, 7:14:35 AM)
+[276] Friend to remove:
+   Steam ID: 76561199859635688
+   Name: rq950977
+   Date Added: 8/25/2025, 9:15:01 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/25/2025, 9:15:01 AM)
+[277] Keeping friend: bp751162 (added 12/12/2025, 7:14:05 AM)
+[278] Keeping friend: yu751711 (added 12/12/2025, 7:14:05 AM)
+[279] Keeping friend: oj752639 (added 12/12/2025, 6:56:25 AM)
+[280] Keeping friend: ad751885 (added 12/12/2025, 7:14:36 AM)
+[281] Keeping friend: zu751212 (added 12/12/2025, 7:14:05 AM)
+[282] Keeping friend: ox751893 (added 12/12/2025, 7:14:36 AM)
+[283] Keeping friend: mj751866 (added 12/12/2025, 7:14:36 AM)
+[284] Keeping friend: kn752681 (added 12/12/2025, 6:56:25 AM)
+[285] Friend to remove:
+   Steam ID: 76561199860093707
+   Name: ml946963
+   Date Added: 8/28/2025, 8:20:05 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/28/2025, 8:20:05 AM)
+[286] Keeping friend: ea750404 (added 12/12/2025, 6:56:25 AM)
+[287] Keeping friend: on752640 (added 12/12/2025, 6:56:25 AM)
+[288] Keeping friend: do751762 (added 12/12/2025, 7:14:36 AM)
+[289] Keeping friend: du751683 (added 12/12/2025, 7:14:05 AM)
+[290] Keeping friend: ap751785 (added 12/12/2025, 7:14:36 AM)
+[291] Keeping friend: vr751117 (added 12/12/2025, 7:14:05 AM)
+[292] Keeping friend: vf751701 (added 12/12/2025, 7:14:05 AM)
+[293] Keeping friend: qa751048 (added 12/12/2025, 6:56:25 AM)
+[294] Keeping friend: zo752751 (added 12/12/2025, 6:56:25 AM)
+[295] Keeping friend: oy751185 (added 12/12/2025, 7:14:05 AM)
+[296] Keeping friend: pf751690 (added 12/12/2025, 7:14:05 AM)
+[297] Keeping friend: cu751097 (added 12/12/2025, 7:13:17 AM)
+[298] Keeping friend: pz751104 (added 12/12/2025, 7:14:05 AM)
+[299] Keeping friend: pe751022 (added 12/12/2025, 6:56:25 AM)
+[300] Keeping friend: uj751194 (added 12/12/2025, 7:14:05 AM)
+[301] Keeping friend: jf751064 (added 12/12/2025, 6:56:52 AM)
+[302] Keeping friend: hj751143 (added 12/12/2025, 7:14:05 AM)
+[303] Keeping friend: nq751070 (added 12/12/2025, 6:56:52 AM)
+[304] Keeping friend: fh752666 (added 12/12/2025, 6:56:25 AM)
+[305] Keeping friend: xh751818 (added 12/12/2025, 7:14:36 AM)
+[306] Keeping friend: ua751804 (added 12/12/2025, 7:14:36 AM)
+[307] Keeping friend: ka751007 (added 12/12/2025, 6:56:25 AM)
+[308] Keeping friend: ru751034 (added 12/12/2025, 6:56:25 AM)
+[309] Keeping friend: fu751753 (added 12/12/2025, 7:14:35 AM)
+[310] Keeping friend: eo752701 (added 12/12/2025, 6:56:25 AM)
+[311] Keeping friend: sv751084 (added 12/12/2025, 6:56:52 AM)
+[312] Keeping friend: ux751129 (added 12/12/2025, 7:14:05 AM)
+[313] Keeping friend: uq751137 (added 12/12/2025, 7:14:05 AM)
+[314] Keeping friend: gc751150 (added 12/12/2025, 7:14:05 AM)
+[315] Keeping friend: mp752657 (added 12/12/2025, 6:56:25 AM)
+[316] Keeping friend: uj751207 (added 12/12/2025, 7:14:05 AM)
+[317] Keeping friend: ad751059 (added 12/12/2025, 6:56:25 AM)
+[318] Keeping friend: vy751795 (added 12/12/2025, 7:14:36 AM)
+[319] Keeping friend: wr752691 (added 12/12/2025, 6:56:25 AM)
+[320] Keeping friend: if751879 (added 12/12/2025, 7:14:36 AM)
+[321] Keeping friend: li752677 (added 12/12/2025, 6:56:25 AM)
+[322] Friend to remove:
+   Steam ID: 76561199888606346
+   Name: umayrkrampa93p
+   Date Added: 8/30/2025, 8:24:31 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:31 PM)
+[323] Friend to remove:
+   Steam ID: 76561199889257708
+   Name: uphaminuria6plbx
+   Date Added: 8/30/2025, 8:24:28 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:28 PM)
+[324] Friend to remove:
+   Steam ID: 76561199889303696
+   Name: yuleeizuernrr0t6c
+   Date Added: 8/30/2025, 8:24:26 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:26 PM)
+[325] Keeping friend: jdmsacie (added 2/21/2026, 10:01:42 PM)
+[326] Friend to remove:
+   Steam ID: 76561199889559124
+   Name: estlemleden3mts
+   Date Added: 8/30/2025, 8:24:28 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:28 PM)
+[327] Friend to remove:
+   Steam ID: 76561199889580551
+   Name: fungaming
+   Date Added: 9/1/2025, 7:20:40 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:40 AM)
+[328] Friend to remove:
+   Steam ID: 76561199889685003
+   Name: floanjcripe5ez9o
+   Date Added: 9/1/2025, 7:20:41 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:41 AM)
+[329] Friend to remove:
+   Steam ID: 76561199889696498
+   Name: luzumslajoy5gdmgc
+   Date Added: 8/30/2025, 8:24:22 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:22 PM)
+[330] Keeping friend: ideueizuazo7yk4zv (added 2/11/2026, 9:10:19 PM)
+[331] Friend to remove:
+   Steam ID: 76561199889802980
+   Name: rawalzhaase5vrq
+   Date Added: 9/1/2025, 7:20:37 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:37 AM)
+[332] Friend to remove:
+   Steam ID: 76561199889887380
+   Name: piferjpreap7gsow
+   Date Added: 8/30/2025, 8:24:30 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:30 PM)
+[333] Friend to remove:
+   Steam ID: 76561199889912758
+   Name: buncknyumnayojk
+   Date Added: 9/1/2025, 7:20:39 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:39 AM)
+[334] Friend to remove:
+   Steam ID: 76561199890081927
+   Name: saadyobabakh75
+   Date Added: 9/1/2025, 7:20:32 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:32 AM)
+[335] Keeping friend: malickyanez8yk (added 2/11/2026, 9:10:19 PM)
+[336] Friend to remove:
+   Steam ID: 76561199890547547
+   Name: rogersazumavbu
+   Date Added: 9/1/2025, 7:20:33 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:33 AM)
+[337] Friend to remove:
+   Steam ID: 76561199890560962
+   Name: varonpchenh22op8
+   Date Added: 9/1/2025, 7:20:35 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:35 AM)
+[338] Friend to remove:
+   Steam ID: 76561199890568564
+   Name: uranoqshynevcv7
+   Date Added: 9/1/2025, 7:20:39 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:39 AM)
+[339] Friend to remove:
+   Steam ID: 76561199890600347
+   Name: lemerphelps9o9
+   Date Added: 9/1/2025, 7:20:31 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:31 AM)
+[340] Friend to remove:
+   Steam ID: 76561199890686628
+   Name: leichxoroszvai
+   Date Added: 9/1/2025, 7:20:34 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:34 AM)
+[341] Keeping friend: marckwsupryd2n (added 2/11/2026, 9:09:37 PM)
+[342] Keeping friend: kearnraydonzco458 (added 2/11/2026, 9:09:37 PM)
+[343] Friend to remove:
+   Steam ID: 76561199891180699
+   Name: heydekcittiiqts
+   Date Added: 9/1/2025, 7:20:34 AM
+   Reason: Date between 7/28/2025 and 11/30/2025 (9/1/2025, 7:20:34 AM)
+[344] Friend to remove:
+   Steam ID: 76561199891320039
+   Name: cranzphampe5qh
+   Date Added: 8/30/2025, 8:24:29 PM
+   Reason: Date between 7/28/2025 and 11/30/2025 (8/30/2025, 8:24:29 PM)
+[345] Keeping friend: ijamsndoomsfdmrx (added 2/11/2026, 9:10:19 PM)
+[346] Keeping friend: pottszgolik8sk5m (added 2/11/2026, 9:09:36 PM)
+[347] Keeping friend: elbelhkukajjv1vb5 (added 2/11/2026, 9:09:36 PM)
+[348] Keeping friend: fuhernclinky8lrt (added 2/11/2026, 9:10:19 PM)
+[349] Keeping friend: tauchuweniga7p (added 2/11/2026, 9:09:36 PM)
+
+=== Summary ===
+Total friends checked: 349
+Friends to remove: 245
+
+=== Removing Friends ===
+Removing friend 1/245: larkhulen (76561198062829805)
+Removing friend 2/245: Berlino (76561198166495364)
+Removing friend 3/245: Lord of The Clown (76561198203811797)
+Removing friend 4/245: Cisco Lobo (76561198303636339)
+Removing friend 5/245: Gamer depressivo (76561198366449849)
+Removing friend 6/245: ADISON (76561198397978257)
+Removing friend 7/245: xd251376 (76561198767564173)
+Removing friend 8/245: jw251376 (76561198767595668)
+Removing friend 9/245: re251997 (76561198767737610)
+Removing friend 10/245: cd251997 (76561198767749468)
+Removing friend 11/245: sg251377 (76561198767751179)
+Removing friend 12/245: jd251997 (76561198767760236)
+Removing friend 13/245: hx251378 (76561198767761839)
+Removing friend 14/245: kc250423 (76561198767766636)
+Removing friend 15/245: zd251377 (76561198767804768)
+Removing friend 16/245: cl250422 (76561198767808390)
+Removing friend 17/245: zy251376 (76561198767815754)
+Removing friend 18/245: ph251996 (76561198767820519)
+Removing friend 19/245: uv250423 (76561198767821674)
+Removing friend 20/245: on251375 (76561198767827003)
+Removing friend 21/245: tn251997 (76561198767829226)
+Removing friend 22/245: im251377 (76561198767831749)
+Removing friend 23/245: bg251997 (76561198767846549)
+Removing friend 24/245: ao251377 (76561198767861325)
+Removing friend 25/245: bb251377 (76561198767873726)
+Removing friend 26/245: qb251377 (76561198767888954)
+Removing friend 27/245: rs250423 (76561198767934179)
+Removing friend 28/245: qm251376 (76561198768238314)
+Removing friend 29/245: br251378 (76561198768289389)
+Removing friend 30/245: gq251378 (76561198768332495)
+Removing friend 31/245: oj251996 (76561198768634260)
+Removing friend 32/245: sk251376 (76561198768748468)
+Removing friend 33/245: ro251378 (76561198768982913)
+Removing friend 34/245: cm250423 (76561198769011778)
+Removing friend 35/245: ua251996 (76561198769019333)
+Removing friend 36/245: yk251997 (76561198769455977)
+Removing friend 37/245: jo251997 (76561198769468077)
+Removing friend 38/245: jp251998 (76561198769474378)
+Removing friend 39/245: yf251376 (76561198769487787)
+Removing friend 40/245: xp251376 (76561198769488218)
+Removing friend 41/245: by250420 (76561198769493003)
+Removing friend 42/245: hj251377 (76561198769511548)
+Removing friend 43/245: ks251377 (76561198769512123)
+Removing friend 44/245: cp250422 (76561198769528308)
+Removing friend 45/245: jv250423 (76561198769549396)
+Removing friend 46/245: ya250422 (76561198769551551)
+Removing friend 47/245: sd250423 (76561198769572898)
+Removing friend 48/245: mv250423 (76561198769640546)
+Removing friend 49/245: uw251377 (76561198769644612)
+Removing friend 50/245: zq250422 (76561198769662859)
+Removing friend 51/245: yh251376 (76561198769830365)
+Removing friend 52/245: un250422 (76561198770268787)
+Removing friend 53/245: rc251376 (76561198770447352)
+Removing friend 54/245: frieda14752pat1984 (76561198770610469)
+Removing friend 55/245: hilary3783sonja1998 (76561198770706129)
+Removing friend 56/245: clarice2181glenda1987 (76561198770706401)
+Removing friend 57/245: lk251997 (76561198770707133)
+Removing friend 58/245: lorna16388inez2000 (76561198770721866)
+Removing friend 59/245: staci15493leona1988 (76561198770726554)
+Removing friend 60/245: cherie14279georgia1986 (76561198770769403)
+Removing friend 61/245: sandycassie1198720 (76561198770805835)
+Removing friend 62/245: leanne23328eula1984 (76561198770824437)
+Removing friend 63/245: marcy26241marguerite1986 (76561198770850338)
+Removing friend 64/245: carmela17982erma2000 (76561198770892172)
+Removing friend 65/245: alisondina16198816 (76561198770937141)
+Removing friend 66/245: lucile16737elsa1981 (76561198770940759)
+Removing friend 67/245: beckyjocelyn22199623 (76561198770973351)
+Removing friend 68/245: emilia17400essie1996 (76561198770980280)
+Removing friend 69/245: elma23829blanca1994 (76561198771044634)
+Removing friend 70/245: katedebora22199025 (76561198771065433)
+Removing friend 71/245: rosalielorna16200012 (76561198771070667)
+Removing friend 72/245: ursula12609claire1997 (76561198771071253)
+Removing friend 73/245: tr250421 (76561198771081726)
+Removing friend 74/245: nell12910sadie2001 (76561198771111216)
+Removing friend 75/245: elise25720celia1995 (76561198771139462)
+Removing friend 76/245: daisycathleen13199823 (76561198771224610)
+Removing friend 77/245: lorie9483marguerite2001 (76561198771274018)
+Removing friend 78/245: desireeconsuelo26200116 (76561198771279746)
+Removing friend 79/245: gingerjaclyn20198723 (76561198771376637)
+Removing friend 80/245: xx251998 (76561198771451748)
+Removing friend 81/245: catalina26197vickie1998 (76561198771910341)
+Removing friend 82/245: jodysusanne23198921 (76561198772037119)
+Removing friend 83/245: ester20408kendra1990 (76561198772167937)
+Removing friend 84/245: charityclaudia199216788 (76561198772396582)
+Removing friend 85/245: marisa11775lorena1994 (76561198772503798)
+Removing friend 86/245: leonageorgina219952 (76561198772595742)
+Removing friend 87/245: josie6317lola1995 (76561198772629346)
+Removing friend 88/245: lidia8695olivia1984 (76561198772672682)
+Removing friend 89/245: audra21464jodi1991 (76561198772716608)
+Removing friend 90/245: jami18566latoya1993 (76561198772740094)
+Removing friend 91/245: hattieaudra20199221 (76561198772905059)
+Removing friend 92/245: summer1058lindsey1999 (76561198772919299)
+Removing friend 93/245: marylou274deanna1985 (76561198772966168)
+Removing friend 94/245: jodie24919felicia1990 (76561198773287579)
+Removing friend 95/245: janine6565kate1992 (76561198773287996)
+Removing friend 96/245: lara24640myrtle1982 (76561198773900665)
+Removing friend 97/245: wirtzhmunaz0az3k4 (76561198789780088)
+Removing friend 98/245: mitroxzabenlo3jx (76561198789794030)
+Removing friend 99/245: lyndswfiorab29 (76561198789797288)
+Removing friend 100/245: fuhrybruthsre7 (76561198789805353)
+Removing friend 101/245: braethbialkfqkw (76561198789810692)
+Removing friend 102/245: molinipichtt13 (76561198789826945)
+Removing friend 103/245: brineljanosqttnfv (76561198789833434)
+Removing friend 104/245: haferzfulpswxsenq (76561198789833700)
+Removing friend 105/245: falenpboyanfrm6 (76561198789856666)
+Removing friend 106/245: streiazulch2io (76561198789869819)
+Removing friend 107/245: mensotpyryt66ds (76561198789882995)
+Removing friend 108/245: denyszschegh21nb (76561198789894271)
+Removing friend 109/245: benzacnorend2i (76561198789898403)
+Removing friend 110/245: bimbofrosinpk1g9 (76561198790730472)
+Removing friend 111/245: littyqhnydaknc4 (76561198790731256)
+Removing friend 112/245: radioyroepepii (76561198790763395)
+Removing friend 113/245: benzihgabayi8n (76561198790769632)
+Removing friend 114/245: tarzidceydapd5 (76561198790772368)
+Removing friend 115/245: prileyamial0dev (76561198791033260)
+Removing friend 116/245: combsqbailsyg3 (76561198791063912)
+Removing friend 117/245: ludinzdavieae9e (76561198791072067)
+Removing friend 118/245: terzippadrouvkk1 (76561198791075084)
+Removing friend 119/245: wehbyukasic4guls (76561198791095721)
+Removing friend 120/245: zaimiuvondyfki (76561198791101742)
+Removing friend 121/245: frinkgdemro3v44 (76561198791129265)
+Removing friend 122/245: gradyatardo3fibq (76561198791202809)
+Removing friend 123/245: firerlkonek5s1e (76561198791219496)
+Removing friend 124/245: heralzmeauxzpvx (76561198791222310)
+Removing friend 125/245: DavidPlaysGames (76561198791240814)
+Removing friend 126/245: sniffxgroysms18b (76561198791246277)
+Removing friend 127/245: petelacrampdgf (76561198791248950)
+Removing friend 128/245: vakosqlaliczxf3 (76561198791267817)
+Removing friend 129/245: asaadeaaravfienp (76561198791290411)
+Removing friend 130/245: wahbagcraan9fxgsy (76561198791365076)
+Removing friend 131/245: naneyiplatz347 (76561198791458925)
+Removing friend 132/245: korpizlovehg27k2 (76561198791528278)
+Removing friend 133/245: knaulldears71wr3d (76561198791536538)
+Removing friend 134/245: kipleopiella35 (76561198791570153)
+Removing friend 135/245: kumaizrudrafdqe3 (76561198791897579)
+Removing friend 136/245: taweswbouvyj5nf (76561198792047181)
+Removing friend 137/245: darius_mcnoxus (76561198802638596)
+Removing friend 138/245: ! Sreq (76561198807727550)
+Removing friend 139/245: Awesomo23 (76561198826640628)
+Removing friend 140/245: ssaralewin (76561199040884409)
+Removing friend 141/245: haktanyuruk00 (76561199044338188)
+Removing friend 142/245: fugaquangchung92 (76561199416616834)
+Removing friend 143/245: tvqbkfrf6 (76561199566828198)
+Removing friend 144/245: 76561199670774185 (76561199670774185)
+Removing friend 145/245: hwawangm77 (76561199703914511)
+Removing friend 146/245: bensonchelsey (76561199704042243)
+Removing friend 147/245: jenevaborgen199334 (76561199704488179)
+Removing friend 148/245: jenellz9ctmeier (76561199704932687)
+Removing friend 149/245: chjacquline8888 (76561199705087211)
+Removing friend 150/245: Dragonfly (76561199705296519)
+Removing friend 151/245: steshinn7e (76561199705496954)
+Removing friend 152/245: chyaocaguayo (76561199705645887)
+Removing friend 153/245: jackieopvenewsom (76561199705718273)
+Removing friend 154/245: susan3x_boltonhn (76561199705721385)
+Removing friend 155/245: cm825381 (76561199782377685)
+Removing friend 156/245: sanemdemirahit (76561199830021827)
+Removing friend 157/245: rv952895 (76561199857378957)
+Removing friend 158/245: ji950846 (76561199857483846)
+Removing friend 159/245: lk947271 (76561199857503559)
+Removing friend 160/245: yy949679 (76561199857663855)
+Removing friend 161/245: qp949814 (76561199857664286)
+Removing friend 162/245: ii949843 (76561199857735913)
+Removing friend 163/245: cb951057 (76561199857791995)
+Removing friend 164/245: dq949753 (76561199857829981)
+Removing friend 165/245: na951016 (76561199857832136)
+Removing friend 166/245: yx949793 (76561199857946212)
+Removing friend 167/245: xa946739 (76561199857998361)
+Removing friend 168/245: zy951039 (76561199858042239)
+Removing friend 169/245: xw951161 (76561199858078157)
+Removing friend 170/245: gs947249 (76561199858124294)
+Removing friend 171/245: qv951159 (76561199858126831)
+Removing friend 172/245: zl949643 (76561199858136324)
+Removing friend 173/245: ug952789 (76561199858141815)
+Removing friend 174/245: wv951147 (76561199858160295)
+Removing friend 175/245: zm952919 (76561199858189887)
+Removing friend 176/245: vh947205 (76561199858217743)
+Removing friend 177/245: ed952804 (76561199858224210)
+Removing friend 178/245: se952923 (76561199858252875)
+Removing friend 179/245: pc949767 (76561199858326904)
+Removing friend 180/245: ji949510 (76561199858334744)
+Removing friend 181/245: qr949716 (76561199858351198)
+Removing friend 182/245: fs950998 (76561199858353755)
+Removing friend 183/245: rd950883 (76561199858380063)
+Removing friend 184/245: fr949544 (76561199858404393)
+Removing friend 185/245: co947268 (76561199858412360)
+Removing friend 186/245: FlameMlem (76561199858458053)
+Removing friend 187/245: dq949832 (76561199858459026)
+Removing friend 188/245: cn946982 (76561199858463386)
+Removing friend 189/245: ml951091 (76561199858470991)
+Removing friend 190/245: ut946996 (76561199858542702)
+Removing friend 191/245: zl952864 (76561199858560856)
+Removing friend 192/245: cb951078 (76561199858568160)
+Removing friend 193/245: qp949866 (76561199858612422)
+Removing friend 194/245: xw947221 (76561199858629298)
+Removing friend 195/245: ht951047 (76561199858631453)
+Removing friend 196/245: wv951024 (76561199858636052)
+Removing friend 197/245: zy947019 (76561199858658765)
+Removing friend 198/245: nz952829 (76561199858679246)
+Removing friend 199/245: Quokkaa (76561199858714842)
+Removing friend 200/245: nz952880 (76561199858720430)
+Removing friend 201/245: ba949431 (76561199858760155)
+Removing friend 202/245: nz952853 (76561199858778874)
+Removing friend 203/245: vu952905 (76561199858790254)
+Removing friend 204/245: potato J (76561199858790658)
+Removing friend 205/245: se951111 (76561199858809120)
+Removing friend 206/245: po952795 (76561199858810844)
+Removing friend 207/245: vt946975 (76561199858811403)
+Removing friend 208/245: nm949820 (76561199858844887)
+Removing friend 209/245: ih952726 (76561199858880096)
+Removing friend 210/245: rr952877 (76561199858882352)
+Removing friend 211/245: xj946957 (76561199858893056)
+Removing friend 212/245: ts951084 (76561199858896504)
+Removing friend 213/245: qp952817 (76561199859055236)
+Removing friend 214/245: rq952947 (76561199859066566)
+Removing friend 215/245: tf946937 (76561199859096801)
+Removing friend 216/245: my947004 (76561199859097232)
+Removing friend 217/245: rd949856 (76561199859114747)
+Removing friend 218/245: xw947215 (76561199859224190)
+Removing friend 219/245: qc947255 (76561199859229855)
+Removing friend 220/245: ed951130 (76561199859345273)
+Removing friend 221/245: ji949800 (76561199859360182)
+Removing friend 222/245: sw949264 (76561199859428940)
+Removing friend 223/245: gs946941 (76561199859432651)
+Removing friend 224/245: qc951000 (76561199859479392)
+Removing friend 225/245: ii950866 (76561199859530101)
+Removing friend 226/245: rq950977 (76561199859635688)
+Removing friend 227/245: ml946963 (76561199860093707)
+Removing friend 228/245: umayrkrampa93p (76561199888606346)
+Removing friend 229/245: uphaminuria6plbx (76561199889257708)
+Removing friend 230/245: yuleeizuernrr0t6c (76561199889303696)
+Removing friend 231/245: estlemleden3mts (76561199889559124)
+Removing friend 232/245: fungaming (76561199889580551)
+Removing friend 233/245: floanjcripe5ez9o (76561199889685003)
+Removing friend 234/245: luzumslajoy5gdmgc (76561199889696498)
+Removing friend 235/245: rawalzhaase5vrq (76561199889802980)
+Removing friend 236/245: piferjpreap7gsow (76561199889887380)
+Removing friend 237/245: buncknyumnayojk (76561199889912758)
+Removing friend 238/245: saadyobabakh75 (76561199890081927)
+Removing friend 239/245: rogersazumavbu (76561199890547547)
+Removing friend 240/245: varonpchenh22op8 (76561199890560962)
+Removing friend 241/245: uranoqshynevcv7 (76561199890568564)
+Removing friend 242/245: lemerphelps9o9 (76561199890600347)
+Removing friend 243/245: leichxoroszvai (76561199890686628)
+Removing friend 244/245: heydekcittiiqts (76561199891180699)
+Removing friend 245/245: cranzphampe5qh (76561199891320039)
+
+=== Completed ===
+Successfully removed 245 friend(s) added between 7/28/2025 and 11/30/2025.
+
+
+

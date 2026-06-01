@@ -9,7 +9,7 @@ const client = new SteamUser({
     changelistUpdateInterval: 10000 // 10 seconds - how often to check for updates
 });
 
-const BATCH_SIZE = 17;
+const BATCH_SIZE = 15;
 
 // Parse steam_china.txt file
 function parseSteamAccounts(filePath) {
@@ -74,21 +74,28 @@ function readProcessedRawLines(fileName) {
 }
 
 // Parse all accounts
-// FILE_NAME = 'steam_cis_export.txt'
-FILE_NAME = '/Volumes/fungame/steam/1910_from_2k.txtresult.txt'
+// FILE_NAME = 'steam_accounts.txt'
+FILE_NAME = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/smb/1k_outlook_2005.txtresult.txt'
+// FILE_NAME = '/Users/lequangha/fungaming/fungame/steam/2650_outlook.txt.missing.txtresult.txt'
 const allAccounts = parseSteamAccounts(FILE_NAME);
 console.log(`Loaded ${allAccounts.length} accounts from file`);
 
 const ACCOUNTS = require('./steam_accounts');
 
 // Which steamIDs to add — each entry resolves to one invite link via QUICK_INVITE_LINKS
-// const run = ['daicaso1122', 'sisloraquevm', 'lomaywoldeba'];
+// const run = ['daicaso1122', 'sisloraquevm', 'lomaywoldeba', 'DeanaIsabel', 'LidiaOlivia'];
 
 // const run = ['forssmelsoey','tepozreams','tichvan1742000', 'duaneunger'];
 
-// const run = ['DeanaIsabel','JamiNina','renemay2', 'LidiaOlivia', 'JosieLola3'];
-const run = ['dukminzs', 'sovikjrollexq', 'duaneunger'];
-// const run = []
+
+run = ['ceirahoisld', 'rymutghani', 'cereocaiusmq']
+    // ['butayflyteos', 'nookstostazr', 'pittafridyc'],
+    // ['mooteclaesl', 'polindobekhl', 'yahneolsano'],
+    // ['']
+
+// Mode: 'redeem' to redeem invite links from `run`, 'create' to create new quick invite links
+// const MODE = 'create';
+const MODE = 'redeem';
 
 const LOGING_TIMEOUT = 20000;
 
@@ -118,11 +125,11 @@ const clients = accounts.map((account) => {
         picsCacheAll: true,
         changelistUpdateInterval: 10000
     });
-    
+
     accClient.accountData = account;
     accClient.inviteLinks = run.map(id => ACCOUNTS[id] && ACCOUNTS[id].quickInviteLink).filter(Boolean);
 
-    
+
     return accClient;
 });
 
@@ -191,7 +198,7 @@ clients.forEach((accClient, index) => {
         checkAllSettled();
         console.log(`\n[${account.id}] ${account.username} - Logged in successfully!`);
         console.log(`[${account.id}] Steam ID:`, accClient.steamID.toString());
-        
+
         accClient.setPersona(SteamUser.EPersonaState.Online);
 
         // Auto add games to library
@@ -210,66 +217,70 @@ clients.forEach((accClient, index) => {
         // accClient.gamesPlayed(613100);
         // accClient.gamesPlayed(1590840);
 
-        // Create a quick invite link for this account
-        // accClient.createQuickInviteLink({
-        //     inviteLimit: 1000,
-        //     inviteDuration: null
-        // }, function(err, response) {
-        //     if (!err) {
-        //         console.log(`\n[${account.id}] === Your Quick Invite Link ===`);
-        //         console.log(`[${account.id}] Link:`, response.token.invite_link);
-        //         console.log(`[${account.id}] Uses Remaining:`, response.token.invite_limit);
-        //         console.log(`[${account.id}] Time Remaining:`, response.token.invite_duration ? `${response.token.invite_duration} seconds` : 'Never expires');
-        //         console.log(`[${account.id}] Created:`, response.token.time_created);
-        //         console.log(`[${account.id}] Valid:`, response.token.valid);
-        //     } else {
-        //         console.log(`[${account.id}] Error creating invite link:`, err);
-        //     }
-        // });
-
-        // Redeem quick invite links sequentially (2s apart)
-        const links = accClient.inviteLinks;
-        if (links.length === 0) {
-            console.log(`[${account.id}] No invite links configured`);
-        } else {
-            links.forEach((link, i) => {
-                setTimeout(() => {
-                    console.log(`[${account.id}] Using invite link ${i + 1}: ${link}`);
-                    accClient.redeemQuickInviteLink(link, function(err) {
-                        if (!err) {
-                            console.log(`[${account.id}] Successfully sent friend request via link ${i + 1}`);
-                        } else {
-                            console.log(`[${account.id}] Error redeeming invite link ${i + 1}:`, err.message);
-                        }
-                    });
-                }, i * 2000);
+        if (MODE === 'create') {
+            // Create a quick invite link for this account
+            accClient.createQuickInviteLink({
+                inviteLimit: 1000,
+                inviteDuration: null
+            }, function(err, response) {
+                if (!err) {
+                    console.log(`\n[${account.id}] === Your Quick Invite Link ===`);
+                    console.log(`[${account.id}] Link:`, response.token.invite_link);
+                    console.log(`[${account.id}] Uses Remaining:`, response.token.invite_limit);
+                    console.log(`[${account.id}] Time Remaining:`, response.token.invite_duration ? `${response.token.invite_duration} seconds` : 'Never expires');
+                    console.log(`[${account.id}] Created:`, response.token.time_created);
+                    console.log(`[${account.id}] Valid:`, response.token.valid);
+                } else {
+                    console.log(`[${account.id}] Error creating invite link:`, err);
+                }
             });
+        } else if (MODE === 'redeem') {
+            // Redeem quick invite links sequentially (2s apart)
+            const links = accClient.inviteLinks;
+            if (links.length === 0) {
+                console.log(`[${account.id}] No invite links configured`);
+            } else {
+                links.forEach((link, i) => {
+                    setTimeout(() => {
+                        console.log(`[${account.id}] Using invite link ${i + 1}: ${link}`);
+                        accClient.redeemQuickInviteLink(link, function(err) {
+                            if (!err) {
+                                console.log(`[${account.id}] Successfully sent friend request via link ${i + 1}`);
+                            } else {
+                                console.log(`[${account.id}] Error redeeming invite link ${i + 1}:`, err.message);
+                            }
+                        });
+                    }, i * 2000);
+                });
+            }
+        } else {
+            console.log(`[${account.id}] Unknown MODE: ${MODE}`);
         }
     });
-    
+
     accClient.on('accountInfo', function(info) {
         console.log(`\n[${account.id}] === Account Info ===`);
         console.log(`[${account.id}] Name:`, info.name);
         console.log(`[${account.id}] Profile URL:`, `https://steamcommunity.com/profiles/${accClient.steamID.getSteamID64()}`);
-        
+
         if (accClient.emailInfo && accClient.emailInfo.address) {
             console.log(`[${account.id}] Email:`, accClient.emailInfo.address);
         }
     });
-    
+
     accClient.on('friendsList', function() {
         const friendsCount = Object.keys(accClient.myFriends).length;
         console.log(`\n[${account.id}] === Friend List ===`);
         console.log(`[${account.id}] Total friends: ${friendsCount}`);
-        
+
         const onlineFriends = Object.values(accClient.myFriends).filter(f => f && f.rich_presence && f.rich_presence.length > 0).length;
         console.log(`[${account.id}] Friends online: ${onlineFriends}`);
-        
+
         // Get Steam ID64 for API call
         const steamID64 = accClient.steamID.getSteamID64();
 
     });
-    
+
     accClient.on('steamGuard', function(domain, callback) {
         if (domain === null) {
             // Mobile authenticator required — skip this account
@@ -291,11 +302,11 @@ clients.forEach((accClient, index) => {
         checkAllSettled();
         console.log(`[${account.id}] Error:`, err.message);
     });
-    
+
     accClient.on('disconnected', function(errcode, msg) {
         console.log(`[${account.id}] Disconnected. Error code:`, errcode);
     });
-    
+
     // Login to this account
     console.log(`Logging in account ${account.id}/${accounts.length}: ${account.username}`);
     accClient.logOn({
