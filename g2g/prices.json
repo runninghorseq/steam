@@ -1,0 +1,18 @@
+{
+  "prices": [
+    {
+      "appId": "4619840",
+      "parentAppId": null,
+      "region": "ua",
+      "name": "Path of Exile 2 - Divinity Supporter Pack",
+      "type": "dlc",
+      "isFree": false,
+      "available": true,
+      "currency": "UAH",
+      "initialPrice": 600,
+      "finalPrice": 600,
+      "discountPercent": 0
+    }
+  ],
+  "history": []
+}
