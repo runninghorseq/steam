@@ -18,35 +18,29 @@ function parseSteamAccounts(filePath) {
     });
 }
 
-async function runWithConcurrency(items, n, worker) {
-    let cursor = 0;
+async function runSequentially(items, worker) {
     const results = [];
-    const workers = Array.from({ length: n }, async () => {
-        while (cursor < items.length) {
-            const idx = cursor++;
-            console.log(`>> [${idx + 1}/${items.length}] starting ${items[idx].username}`);
-            results[idx] = await worker(items[idx]);
-        }
-    });
-    await Promise.all(workers);
-    return results; 
+    for (let idx = 0; idx < items.length; idx++) {
+        console.log(`>> [${idx + 1}/${items.length}] starting ${items[idx].username}`);
+        results[idx] = await worker(items[idx]);
+    }
+    return results;
 }
 
 (async () => {
     const FILE_NAME = process.argv[2] || 'steam_accounts.txt';
-    const CONCURRENCY = parseInt(process.argv[3] || '5', 10);
-    const TIMEOUT = parseInt(process.argv[4] || '60000', 10);
+    const TIMEOUT = parseInt(process.argv[3] || '60000', 10);
 
     if (!fs.existsSync(FILE_NAME)) {
         console.error(`File not found: ${FILE_NAME}`);
-        console.error('Usage: node multi_scan.js [file] [concurrency=5] [timeout_ms=60000]');
+        console.error('Usage: node multi_scan.js [file] [timeout_ms=60000]');
         process.exit(1);
     }
 
     const accounts = parseSteamAccounts(FILE_NAME);
-    console.log(`Loaded ${accounts.length} accounts from ${FILE_NAME}. Concurrency: ${CONCURRENCY}.`);
+    console.log(`Loaded ${accounts.length} accounts from ${FILE_NAME}. Processing one by one.`);
 
-    const results = await runWithConcurrency(accounts, CONCURRENCY, (acc) => scanAccount(acc, { timeout: TIMEOUT }));
+    const results = await runSequentially(accounts, (acc) => scanAccount(acc, { timeout: TIMEOUT }));
 
     const ok = results.filter(r => r?.ok).length;
     const failed = results.filter(r => !r?.ok);

@@ -104,6 +104,9 @@ const ACCOUNTS = {
     fleckhfivesxd:            { steamID: '76561198789672801', quickInviteLink: 'https://s.team/p/fcjw-qwjc/RHQQMPHD' },
     waleyhtireymcut:          { steamID: '76561198791247289', quickInviteLink: 'https://s.team/p/fcmk-rhqn/BBNKNWJB' },
     //brazil
+    gertynyiriq:              { steamID: '76561199852544376', quickInviteLink: 'https://s.team/p/kbrn-vckm/NFFPBCRV' },
+    adapakyreem:              { steamID: '76561199853023409', quickInviteLink: 'https://s.team/p/kbtc-fbqc/JQQMPWQV' },
+    brathboloson:             { steamID: '76561199854222081', quickInviteLink: 'https://s.team/p/kbvf-kqbc/HBDVNKRP' },
     ahnerblissv:              { steamID: '76561199853983909', quickInviteLink: 'https://s.team/p/kbtw-tmph/CTFPGCBV' },
     urcialunana:              { steamID: '76561199853572150', quickInviteLink: 'https://s.team/p/kbtn-nbfj/NCHRQHDW' },
     woithsuhardy:             { steamID: '76561199853164117', quickInviteLink: 'https://s.team/p/kbtf-hjhh/JRDBGHVC' },

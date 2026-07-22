@@ -9,9 +9,16 @@ const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.exec(fs.readFileSync(SCHEMA_PATH, 'utf8'));
 
+// Lightweight migrations: add columns introduced after a DB was first created
+// (CREATE TABLE IF NOT EXISTS won't add them to an existing table).
+const accountCols = db.prepare('PRAGMA table_info(accounts)').all().map((c) => c.name);
+if (!accountCols.includes('steam_points')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN steam_points INTEGER');
+}
+
 const upsertAccount = db.prepare(`
-INSERT INTO accounts (steam_id, account_name, persona, country, email, wallet_currency, wallet_balance_cents, steam_level, scanned_at, created_at, updated_at)
-VALUES (@steam_id, @account_name, @persona, @country, @email, @wallet_currency, @wallet_balance_cents, @steam_level, @scanned_at, @now, @now)
+INSERT INTO accounts (steam_id, account_name, persona, country, email, wallet_currency, wallet_balance_cents, steam_level, steam_points, scanned_at, created_at, updated_at)
+VALUES (@steam_id, @account_name, @persona, @country, @email, @wallet_currency, @wallet_balance_cents, @steam_level, @steam_points, @scanned_at, @now, @now)
 ON CONFLICT(steam_id) DO UPDATE SET
     account_name = COALESCE(excluded.account_name, accounts.account_name),
     persona = COALESCE(excluded.persona, accounts.persona),
@@ -20,6 +27,7 @@ ON CONFLICT(steam_id) DO UPDATE SET
     wallet_currency = COALESCE(excluded.wallet_currency, accounts.wallet_currency),
     wallet_balance_cents = COALESCE(excluded.wallet_balance_cents, accounts.wallet_balance_cents),
     steam_level = COALESCE(excluded.steam_level, accounts.steam_level),
+    steam_points = COALESCE(excluded.steam_points, accounts.steam_points),
     scanned_at = excluded.scanned_at,
     updated_at = excluded.updated_at
 `);
@@ -103,6 +111,7 @@ function saveAccount(partial) {
         wallet_currency: partial.wallet_currency ?? null,
         wallet_balance_cents: partial.wallet_balance_cents ?? null,
         steam_level: partial.steam_level ?? null,
+        steam_points: partial.steam_points ?? null,
         scanned_at: ts,
         now: ts
     });
@@ -184,6 +193,45 @@ const saveGifts = db.transaction((accountSteamID, gifts) => {
     }
 });
 
+const deleteSentGifts = db.prepare('DELETE FROM sent_gifts WHERE account_steam_id = ?');
+const insertSentGift = db.prepare(`
+INSERT INTO sent_gifts (gift_id, account_steam_id, recipient_steam_id, recipient_name, item_name, detail, sent_at, status, store_url, scanned_at, created_at, updated_at)
+VALUES (@gift_id, @account_steam_id, @recipient_steam_id, @recipient_name, @item_name, @detail, @sent_at, @status, @store_url, @scanned_at, @now, @now)
+ON CONFLICT(gift_id) DO UPDATE SET
+    account_steam_id = excluded.account_steam_id,
+    recipient_steam_id = excluded.recipient_steam_id,
+    recipient_name = excluded.recipient_name,
+    item_name = excluded.item_name,
+    detail = excluded.detail,
+    sent_at = excluded.sent_at,
+    status = excluded.status,
+    store_url = excluded.store_url,
+    scanned_at = excluded.scanned_at,
+    updated_at = excluded.updated_at
+`);
+
+// Replace this account's sent-gift snapshot wholesale: a gift that's no longer
+// pending (recipient accepted it) drops off the page, so we delete-then-insert.
+const saveSentGifts = db.transaction((accountSteamID, gifts) => {
+    deleteSentGifts.run(accountSteamID);
+    const ts = now();
+    for (const g of gifts) {
+        insertSentGift.run({
+            gift_id: g.gift_id,
+            account_steam_id: accountSteamID,
+            recipient_steam_id: g.recipient_steam_id ?? null,
+            recipient_name: g.recipient_name ?? null,
+            item_name: g.item_name ?? null,
+            detail: g.detail ?? null,
+            sent_at: g.sent_at ?? null,
+            status: g.status ?? null,
+            store_url: g.store_url ?? null,
+            scanned_at: ts,
+            now: ts
+        });
+    }
+});
+
 const upsertToken = db.prepare(`
 INSERT INTO auth_tokens (account_name, refresh_token, created_at, updated_at)
 VALUES (?, ?, ?, ?)
@@ -206,6 +254,6 @@ function clearRefreshToken(accountName) {
 }
 
 module.exports = {
-    db, saveAccount, saveFriends, saveLicenses, saveGifts,
+    db, saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts,
     saveRefreshToken, getRefreshToken, clearRefreshToken
 };

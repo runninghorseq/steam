@@ -75,8 +75,9 @@ function readProcessedRawLines(fileName) {
 }
 
 // Parse all accounts
-FILE_NAME = 'steam_accounts.txt'
+// FILE_NAME = 'steam_accounts.txt'
 // FILE_NAME = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/smb/1k_outlook_2005.txtresult.txt'
+FILE_NAME = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/smb/1491_of_3k_outlook.txtresult.txt'
 // FILE_NAME = '/Users/lequangha/fungaming/fungame/steam/2650_outlook.txt.missing.txtresult.txt'
 const allAccounts = parseSteamAccounts(FILE_NAME);
 console.log(`Loaded ${allAccounts.length} accounts from file`);
@@ -84,18 +85,18 @@ console.log(`Loaded ${allAccounts.length} accounts from file`);
 const ACCOUNTS = require('./steam_accounts');
 
 // Which steamIDs to add — each entry resolves to one invite link via QUICK_INVITE_LINKS
-// const run = ['daicaso1122', 'sisloraquevm', 'lomaywoldeba', 'DeanaIsabel', 'LidiaOlivia'];
+const run = ['josielola3', 'josielola3', 'lilahxandrapwpfg'];
+
 
 // const run = ['forssmelsoey','tepozreams','tichvan1742000', 'duaneunger'];
 
 
-run = ['butayflyteos', 'nookstostazr', 'pittafridyc']
-    // ['mooteclaesl', 'polindobekhl', 'yahneolsano'],
-    // ['']
 
+// run=  ['allisonxylonbnegk', 'lilahxandrapwpfg', 'quilloasisludef']
+// run=  ['elianagallagherdivoc', 'luxorzenithwxqvy', 'josielola3']
 // Mode: 'redeem' to redeem invite links from `run`, 'create' to create new quick invite links
-// const MODE = 'create';
 const MODE = 'redeem';
+// const MODE = 'redeem';
 
 const LOGING_TIMEOUT = 20000;
 

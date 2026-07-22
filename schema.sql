@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     wallet_currency       TEXT,             -- e.g. "USD", "EUR" (ECurrencyCode name)
     wallet_balance_cents  INTEGER,          -- Cents, divide by 100 for display
     steam_level           INTEGER,          -- Profile level (0+)
+    steam_points          INTEGER,          -- Steam Points balance (LoyaltyRewards.GetSummary)
     scanned_at            INTEGER,          -- Last scan unix epoch (seconds)
     created_at            INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at            INTEGER NOT NULL DEFAULT (unixepoch())
@@ -94,6 +95,26 @@ CREATE TABLE IF NOT EXISTS pending_gifts (
     scanned_at        INTEGER,          -- Unix epoch
     created_at        INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at        INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+-- ----------------------------------------------------------------------------
+-- sent_gifts: gifts this account SENT to a friend that haven't been accepted yet
+--   Scraped from the "Sent Gifts" section of the steamcommunity.com inventory
+--   page (each row carries a "Resend gift..." action until the recipient accepts).
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS sent_gifts (
+    gift_id             TEXT PRIMARY KEY, -- Steam gift ID from the sendgift checkout URL
+    account_steam_id    TEXT,             -- Sender (the logged-in account)
+    recipient_steam_id  TEXT,
+    recipient_name      TEXT,
+    item_name           TEXT,             -- e.g. "Path of Exile 2 - Early Access Supporter Pack (Special)"
+    detail              TEXT,             -- Secondary line, e.g. "Steam Gift"
+    sent_at             TEXT,             -- Human-readable date string from the page, e.g. "7 Jun"
+    status              TEXT,             -- "pending" (sent, awaiting acceptance)
+    store_url           TEXT,             -- The sendgift/resend checkout URL
+    scanned_at          INTEGER,          -- Unix epoch
+    created_at          INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at          INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
 -- ----------------------------------------------------------------------------

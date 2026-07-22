@@ -4,8 +4,9 @@ const ACCOUNTS = require('./steam_accounts');
 
 // const run = Object.keys(ACCOUNTS);
 
-run = ['ceirahoisld', 'rymutghani', 'cereocaiusmq']
-// const run = ['rogersazumavbu', 'tarzidceydapd', 'radioyroepepii'];
+const run = ['JamiNina', 'dealezayanqr', 'kairoumberkpchh'];
+// run=  ['elianagallagherdivoc', 'luxorzenithwxqvy', 'josielola3']
+
 // const run = ['ahnerblissv', 'urcialunana', 'woithsuhardy', 'konzehodorhq', 'mamermidhag', 'hovisneacexa', 'skiefarini', 'tylkahycheq', 'dibbaachenf', 'alanaawreyys', 'mekeezekaso', 'sausezamerfq', 'rietashaut', 'bootskiriln', 'lairybovisls'];
 const STEAM_IDS = run.map(name => ACCOUNTS[name] && ACCOUNTS[name].steamID).filter(Boolean);
 

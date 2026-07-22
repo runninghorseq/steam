@@ -1,5 +1,6 @@
 const SteamUser = require('steam-user');
 const https = require('https');
+const { db, getRefreshToken, saveRefreshToken, clearRefreshToken } = require('./db');
 
 const client = new SteamUser({
     picCacheSize: 100,
@@ -7,21 +8,45 @@ const client = new SteamUser({
     changelistUpdateInterval: 10000
 });
 
-// Login credentials - UPDATE THESE
-const logOnOptions = {
-    accountName: 'phamtuyenhien1',
-    password: 'Sonickute12345@'
-};
+// Account to operate on is passed on the CLI:
+//   node remove_friends_by_date.js <accountName>
+// The account is looked up in the accounts table of steam_accounts.db, and the
+// login uses that account's cached refresh token (auth_tokens table). Run
+// single.js first if no token has been cached yet.
+const ACCOUNT_NAME = (process.argv[2] || '').trim();
+if (!ACCOUNT_NAME) {
+    console.error('Usage: node remove_friends_by_date.js <accountName>');
+    process.exit(1);
+}
+
+const accountRow = db
+    .prepare('SELECT steam_id, account_name FROM accounts WHERE lower(account_name) = lower(?)')
+    .get(ACCOUNT_NAME);
+if (!accountRow) {
+    console.error(`Account '${ACCOUNT_NAME}' not found in accounts DB.`);
+    process.exit(1);
+}
+
+const refreshToken = getRefreshToken(accountRow.account_name);
+if (!refreshToken) {
+    console.error(
+        `No cached refresh token for '${accountRow.account_name}'. ` +
+        `Run single.js to log in and cache a token first.`
+    );
+    process.exit(1);
+}
+
+const logOnOptions = { refreshToken };
 
 // Steam Web API Key - you can get one from https://steamcommunity.com/dev/apikey
 const API_KEY = 'EFB5DCE316D3146FD6EFA3BECB8BCB80';
 
 // Date threshold: ${DATE_REMOVAL.toLocaleDateString()} 00:00:00 UTC
-DATE_REMOVAL = new Date('2025-07-28T00:00:00Z')
+DATE_REMOVAL = new Date('2025-11-28T00:00:00Z')
 const REMOVE_TIMESTAMP = Math.floor(DATE_REMOVAL.getTime() / 1000);
 
 // Date threshold for upper bound (remove friends added after this date)
-DATE_REMOVAL_MAX = new Date('2025-11-25T23:59:59Z')
+DATE_REMOVAL_MAX = new Date('2025-11-30T23:59:59Z')
 const REMOVE_TIMESTAMP_MAX = Math.floor(DATE_REMOVAL_MAX.getTime() / 1000);
 
 // List of friend names to remove (case-insensitive matching)
@@ -130,7 +155,14 @@ function fetchFriendNames(steamIDs, callback) {
     });
 }
 
+console.log(`Logging in as '${accountRow.account_name}' (steam_id ${accountRow.steam_id}) via cached refresh token...`);
 client.logOn(logOnOptions);
+
+// Persist a fresh refresh token whenever Steam issues one.
+client.on('refreshToken', (token) => {
+    saveRefreshToken(accountRow.account_name, token);
+    console.log('Refresh token updated.');
+});
 
 client.on('loggedOn', () => {
     console.log('Logged into Steam successfully!');
@@ -310,6 +342,12 @@ client.on('friendsList', function() {
 // Error handling
 client.on('error', function(err) {
     console.log('Error:', err);
+    // If the saved refresh token was revoked/expired, drop it so the next run
+    // (via single.js) can re-cache a fresh one.
+    if (/InvalidPassword|AccessDenied|Expired/i.test(err.message || '')) {
+        clearRefreshToken(accountRow.account_name);
+        console.log('Cleared cached refresh token.');
+    }
 });
 
 client.on('disconnected', function(errcode, msg) {

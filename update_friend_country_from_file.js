@@ -9,25 +9,66 @@
 //     e.g. fuqeo62876----exucb07839----ku170662@cscoen51.icu----70488229|BR
 //          -> match key: "ku170662", country: "BR"
 //
+// Source file path defaults to DEFAULT_FILE below, so the common case needs no
+// argument. Override with the COUNTRY_FILE env var, a --file=<path> flag, or a
+// bare positional path.
+//
 // Usage:
-//   node steam/update_friend_country_from_file.js <file>            # dry run — preview only
-//   node steam/update_friend_country_from_file.js <file> --commit   # apply changes
+//   node steam/update_friend_country_from_file.js                   # dry run on DEFAULT_FILE
+//   node steam/update_friend_country_from_file.js --commit          # apply DEFAULT_FILE
+//   node steam/update_friend_country_from_file.js <file>            # dry run on <file>
+//   node steam/update_friend_country_from_file.js <file> --commit   # apply <file>
+//   node steam/update_friend_country_from_file.js --file=<path> --commit
+//   COUNTRY_FILE=<path> node steam/update_friend_country_from_file.js --commit
 
 const fs = require('fs');
 const { db } = require('./db');
 
+// Most-recent country list (6-col pipe format with trailing |<country>). Other
+// recent candidates in the same dir:
+//   .../acc_new_steam/20260503_2k_outlook.txt
+//   .../acc_new_steam/20260502_2k_outlook_20260420.txt
+//   .../acc_new_steam/20251123_accsteam_LICN16HSJX_85_deale.txt
+//   .../acc_new_steam/20251218_accsteamvn_EGTT97H1H9_110_tepo.txt
+//   .../acc_new_steam/20260304_accsteam_QUDT1772289980_f800.txt
+//   .../acc_new_steam/dataloifb_04242026.txt
+//   .../acc_new_steam/steam_cis_gift.txt
+//   .../acc_new_steam/20260427_OPFH1777198116_444.txt
+//   .../acc_new_steam/20260409_PTGO1774415483_f40.txt
+//   .../acc_new_steam/20251128_accsteam_ZL0OBRNNXJ1_190_kienpoe222.txt
+//   .../acc_new_steam/steam_hotmail_Marcow.txt
+//   .../acc_new_steam/20251021_steam_A4EFUPVYPJ_35.txt
+//   .../acc_new_steam/20251018_accsteam_7II9NJA22W_30.txt
+//   .../acc_new_steam/20260507_1910_from_2k.txtresult.txt
+//   .../acc_new_steam/20251204_accsteam_SPHFWLDOLN_90_duan.txt
+//   .../acc_new_steam/20251106_accsteam_MZGSS5TD4B_60_towaj.txt
+//   .../acc_new_steam/20260302_accsteam_QUDT1772289980_51_pro.txt
+//   .../acc_new_steam/20251031_accsteam_MCO2RAIFV1_50_meoqua.txt
+//   .../acc_new_steam/20251124_accsteam_CZ2LNYHQ4F_135_sovikjrollexq.txt
+//   .../acc_new_steam/20251208_accsteam_OPJEUW69FU_79_alen_kadic.txt
+//   .../acc_new_steam/20260412_PTGO1774415483_f500_macpro.txt
+//   .../acc_new_steam/20260319_YOKT1773745893_f600.txt
+//   .../acc_new_steam/steam_brasil.txt
+//   .../acc_new_steam/20260504_PTGO1774415483.txtresult.txt
+//   .../acc_new_steam/20260513_2650_outlook.txtresult.txt
+//   .../acc_new_steam/20260526_1k_outlook_2005.txtresult.txt
+//   .../acc_new_steam/20260604_2650_outlook.txt.missing.txtresult.txt
+//   .../acc_new_steam/20260606_1491_of_3k_outlook.txtresult.txt
+const DEFAULT_FILE =
+    '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260526_1k_outlook_2005.txtresult.txt';
+
 const args = process.argv.slice(2);
 const COMMIT = args.includes('--commit');
-const FILE = args.find((a) => !a.startsWith('--'));
+const fileFlag = args.find((a) => a.startsWith('--file='));
+const positional = args.find((a) => !a.startsWith('--'));
+const FILE = (fileFlag ? fileFlag.slice('--file='.length) : positional) || process.env.COUNTRY_FILE || DEFAULT_FILE;
 
-if (!FILE) {
-    console.error('Usage: node update_friend_country_from_file.js <file> [--commit]');
-    process.exit(1);
-}
 if (!fs.existsSync(FILE)) {
     console.error(`File not found: ${FILE}`);
     process.exit(1);
 }
+
+console.log(`Source file: ${FILE}`);
 
 const lines = fs.readFileSync(FILE, 'utf8').split('\n').filter((l) => l.trim());
 const mapping = [];
@@ -51,6 +92,10 @@ for (const line of lines) {
         const country = tail[1].trim();
         if (!isCountryCode(country)) {
             skipped.push({ line, reason: `hyphen format: invalid country code "${country}"` });
+            continue;
+        }
+        if (country === 'VN') {
+            skipped.push({ line, reason: 'country is VN — skipped' });
             continue;
         }
         const email = (parts[2] || '').trim();
@@ -78,6 +123,10 @@ for (const line of lines) {
     }
     if (!isCountryCode(country)) {
         skipped.push({ line, reason: `pipe format: invalid country code "${country}"` });
+        continue;
+    }
+    if (country === 'VN') {
+        skipped.push({ line, reason: 'country is VN — skipped' });
         continue;
     }
     mapping.push({ matchBy: 'name', key: prefix, country, raw: line });

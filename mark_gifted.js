@@ -15,34 +15,68 @@
 // In both modes the file write is idempotent (lines already containing the
 // same "|<tag> <date>" token are left alone) and atomic (tmp + rename).
 //
-// Defaults: tag=poe2, date=today (local). Source file path defaults to:
+// Defaults: tag=poe2ea, date=today (local). Source file path defaults to:
 //   /Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/steam_cis_gift.txt
 // Override with env var GIFT_FILE or the --file=<path> flag.
 //
 // CLI:
-//   node steam/mark_gifted.js                                 # sync today, tag=poe2
+//   node steam/mark_gifted.js                                 # sync today, tag=poe2ea
+//   node steam/mark_gifted.js --auto                          # sync today, auto-detect each recipient's pack
+//   node steam/mark_gifted.js --auto --date=20260712          # auto-detect for that day
 //   node steam/mark_gifted.js --tag=cs2                       # sync today, tag=cs2
-//   node steam/mark_gifted.js --date=20260530                 # sync that day, tag=poe2
-//   node steam/mark_gifted.js mp753932                        # mark friend, tag=poe2, today
+//   node steam/mark_gifted.js --date=20260530                 # sync that day, tag=poe2ea
+//   node steam/mark_gifted.js mp753932                        # mark friend, tag=poe2ea, today
 //   node steam/mark_gifted.js mp753932 poe2 20260530          # full explicit
 //   node steam/mark_gifted.js 76561199860275357 poe2          # by steamid
 //
 // Programmatic:
 //   const { markGifted, syncFromDB } = require('./mark_gifted');
-//   markGifted({ friend: 'mp753932' });                       // defaults to poe2 + today
-//   syncFromDB();                                             // sync all today/poe2
+//   markGifted({ friend: 'mp753932' });                       // defaults to poe2ea + today
+//   syncFromDB();                                             // sync all today/poe2ea
 
 const fs = require('fs');
 const path = require('path');
 const { db } = require('./db');
-// /Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20251123_accsteam_LICN16HSJX_85_deale.txt
-// /Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/steam_brasil.txt.txt
-// /Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260427_OPFH1777198116_444.txt.txt
-// /Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/steam_cis_gift.txt.txt
-// /Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20251106_accsteam_MZGSS5TD4B_60_towaj.txt.txt
-const DEFAULT_FILE =
-    '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/steam_cis_gift.txt'
-const DEFAULT_TAG = 'poe2';
+const GIFT_DIR = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam';
+const DEFAULT_FILE = [
+    '20251117_accsteam_57KIJUKFJD_85_pearl.txt',
+    '20251123_accsteam_LICN16HSJX_85_deale.txt',
+    'steam_brasil.txt',
+    '20260427_OPFH1777198116_444.txt',
+    'steam_cis_gift.txt',
+    '20251106_accsteam_MZGSS5TD4B_60_towaj.txt',
+    '20251124_accsteam_CZ2LNYHQ4F_135_sovikjrollexq.txt',
+    '20260502_2k_outlook_20260420.txt',
+    '20251218_accsteamvn_EGTT97H1H9_110_tepo.txt',
+    'steam_hotmail_Marcow.txt',
+    '20260304_accsteam_QUDT1772289980_f800.txt',
+    'dataloifb_04242026.txt',
+    '20260409_PTGO1774415483_f40.txt',
+    '20251128_accsteam_ZL0OBRNNXJ1_190_kienpoe222.txt',
+    '20260507_1910_from_2k.txtresult.txt',
+    '20251204_accsteam_SPHFWLDOLN_90_duan.txt',
+    '20260302_accsteam_QUDT1772289980_51_pro.txt',
+    '20251031_accsteam_MCO2RAIFV1_50_meoqua.txt',
+    '20251208_accsteam_OPJEUW69FU_79_alen_kadic.txt',
+    '20260319_YOKT1773745893_f600.txt',
+    '20260412_PTGO1774415483_f500_macpro.txt',
+    '20260513_2650_outlook.txtresult.txt',
+    '20260526_1k_outlook_2005.txtresult.txt',
+    '20260606_1491_of_3k_outlook.txtresult.txt',
+    '20251021_steam_A4EFUPVYPJ_35.txt',
+].map((name) => path.join(GIFT_DIR, name));
+const DEFAULT_TAG = 'poe2ea';
+
+// Normalize the file input into a list of paths. Accepts an explicit string or
+// array (from the --file flag or programmatic call), a comma-separated
+// GIFT_FILE env var, or falls back to DEFAULT_FILE.
+function resolveFiles(file) {
+    if (file) return (Array.isArray(file) ? file : [file]).filter(Boolean);
+    if (process.env.GIFT_FILE) {
+        return process.env.GIFT_FILE.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    return DEFAULT_FILE;
+}
 
 // Maps a short tag (used in the file marker and CLI) to the canonical Steam
 // item_name(s) that may appear in friends.gifted_game. First entry is the
@@ -50,14 +84,46 @@ const DEFAULT_TAG = 'poe2';
 // are accepted as equivalent when filtering or checking idempotency, so rows
 // written by either the gifting bot or older script runs both match.
 const TAG_ALIASES = {
-    poe2: ['Path of Exile 2', 'poe2']
+    poe2: ['Path of Exile 2', 'poe2'],
+    // game2: the follow-up regular Early Access Supporter Pack. Unlike poe2, this
+    // gift is recorded in the sent_gifts table (item_name), NOT friends.gifted_game,
+    // so it is listed in SENT_GIFTS_TAGS below and sourced from there in sync mode.
+    poe2ea: ['Path of Exile 2 - Early Access Supporter Pack'],
+    // PoE1 supporter packs gifted by steam_profile_login.py (poe1_curator /
+    // poe1_iron / poe1_plague / poe1_remidus). Recorded in sent_gifts.item_name,
+    // so also in SENT_GIFTS_TAGS.
+    poe1cw: ['Path of Exile - Curator of Wisdom Supporter Pack'],
+    poe1ii: ['Path of Exile - Iron Incarcerator Supporter Pack'],
+    poe1pg: ['Path of Exile - Plague Supporter Pack'],
+    poe1rm: ['Path of Exile - Remidus Supporter Pack']
 };
+
+// Tags whose gift record lives in sent_gifts.item_name rather than
+// friends.gifted_game. Sync mode pulls recipients from sent_gifts for these.
+const SENT_GIFTS_TAGS = new Set(['poe2ea', 'poe1cw', 'poe1ii', 'poe1pg', 'poe1rm']);
 
 function gameNamesForTag(tag) {
     return TAG_ALIASES[tag] || [tag];
 }
 function canonicalGameForTag(tag) {
     return gameNamesForTag(tag)[0];
+}
+function isSentGiftsTag(tag) {
+    return SENT_GIFTS_TAGS.has(tag);
+}
+
+// Reverse map: canonical Steam item_name / gifted_game (lowercased) -> tag.
+// Used by auto mode to detect which pack each recipient got. First tag wins if
+// a name is listed under more than one.
+const NAME_TO_TAG = {};
+for (const [tag, names] of Object.entries(TAG_ALIASES)) {
+    for (const n of names) {
+        const k = (n || '').toLowerCase();
+        if (k && !(k in NAME_TO_TAG)) NAME_TO_TAG[k] = tag;
+    }
+}
+function tagForGameName(name) {
+    return NAME_TO_TAG[(name || '').toLowerCase()] || null;
 }
 
 const STEAMID64_RE = /^7656119\d{10}$/;
@@ -116,6 +182,51 @@ function findGiftedInRange(dayStart, dayEnd, gameNames) {
             ORDER BY friend_name
         `)
         .all(dayStart, dayEnd, ...gameNames);
+}
+
+// Like findGiftedInRange, but sourced from sent_gifts (for SENT_GIFTS_TAGS tags).
+// Filters by created_at (when the row was recorded — i.e. when the bot sent the
+// gift) and excludes FAILED rows, which represent attempts where no gift was sent.
+function findSentGiftedInRange(dayStart, dayEnd, itemNames) {
+    if (itemNames.length === 0) return [];
+    const placeholders = itemNames.map(() => '?').join(', ');
+    return db
+        .prepare(`
+            SELECT DISTINCT recipient_name AS friend_name
+            FROM sent_gifts
+            WHERE created_at >= ? AND created_at < ?
+              AND item_name IN (${placeholders})
+              AND (status IS NULL OR status NOT LIKE 'FAILED%')
+              AND recipient_name IS NOT NULL AND trim(recipient_name) <> ''
+            ORDER BY recipient_name
+        `)
+        .all(dayStart, dayEnd, ...itemNames);
+}
+
+// Auto mode: every recipient gifted on the day, tagged by the item they got.
+// From sent_gifts (recorded by the gifting bot), keyed on created_at, FAILED
+// rows excluded.
+function findAllSentInRange(dayStart, dayEnd) {
+    return db
+        .prepare(`
+            SELECT DISTINCT recipient_name AS friend_name, item_name AS game
+            FROM sent_gifts
+            WHERE created_at >= ? AND created_at < ?
+              AND (status IS NULL OR status NOT LIKE 'FAILED%')
+              AND recipient_name IS NOT NULL AND trim(recipient_name) <> ''
+        `)
+        .all(dayStart, dayEnd);
+}
+// ...and from friends.gifted_game (game1-style gifts), keyed on gifted_at.
+function findAllGiftedInRange(dayStart, dayEnd) {
+    return db
+        .prepare(`
+            SELECT DISTINCT friend_name, gifted_game AS game
+            FROM friends
+            WHERE gifted_at >= ? AND gifted_at < ?
+              AND friend_name IS NOT NULL AND trim(friend_name) <> ''
+        `)
+        .all(dayStart, dayEnd);
 }
 
 function updateDB({ friend, tag, ts }) {
@@ -187,7 +298,10 @@ function updateFile({ file, keys, tag, stamp }) {
         const prefix = emailPrefixFromLine(line);
         if (!prefix || !needles.has(prefix.toLowerCase())) return p;
         const tokens = line.split('|').map((t) => t.trim());
-        if (tokens.includes(marker)) {
+        // Already-marked if a token IS the marker, or STARTS WITH it followed by
+        // a suffix annotation (e.g. the gifting bot appends " -> fb"). An exact
+        // match alone would miss those and append a duplicate marker.
+        if (tokens.some((t) => t === marker || t.startsWith(`${marker} `))) {
             matches.push({ line: idx + 1, status: 'already-marked', prefix });
             return p;
         }
@@ -206,20 +320,24 @@ function updateFile({ file, keys, tag, stamp }) {
 
 function markGifted({ friend, tag = DEFAULT_TAG, date, file } = {}) {
     if (!friend) throw new Error('friend is required');
+    if (isSentGiftsTag(tag)) {
+        // This gift lives in sent_gifts, not friends.gifted_game. Writing it via
+        // single-friend mode would overwrite the friend's game1 marker, so it's
+        // only supported in sync mode (which reads from sent_gifts).
+        throw new Error(`tag '${tag}' is recorded in sent_gifts — use sync mode (no friend arg) instead of single-friend mode`);
+    }
     const ts = date ? parseDate(date) : nowEpoch();
     const stamp = fmtDate(ts);
     const dbRes = updateDB({ friend, tag, ts });
 
     const keys = new Set(dbRes.names);
     if (dbRes.lookup === 'name') keys.add(String(friend));
-    const fileRes = updateFile({
-        file: file || process.env.GIFT_FILE || DEFAULT_FILE,
-        keys: [...keys],
-        tag,
-        stamp
-    });
+    const files = resolveFiles(file).map((path) => ({
+        path,
+        ...updateFile({ file: path, keys: [...keys], tag, stamp })
+    }));
 
-    return { ts, stamp, tag, db: dbRes, file: fileRes, fileKeys: [...keys] };
+    return { ts, stamp, tag, db: dbRes, files, fileKeys: [...keys] };
 }
 
 function syncFromDB({ tag = DEFAULT_TAG, date, file } = {}) {
@@ -227,26 +345,80 @@ function syncFromDB({ tag = DEFAULT_TAG, date, file } = {}) {
     const stamp = fmtDate(ts);
     const [dayStart, dayEnd] = localDayRange(ts);
     const gameNames = gameNamesForTag(tag);
-    const friendNames = findGiftedInRange(dayStart, dayEnd, gameNames).map((r) => r.friend_name);
+    const friendNames = (isSentGiftsTag(tag)
+        ? findSentGiftedInRange(dayStart, dayEnd, gameNames)
+        : findGiftedInRange(dayStart, dayEnd, gameNames)
+    ).map((r) => r.friend_name);
 
-    const filePath = file || process.env.GIFT_FILE || DEFAULT_FILE;
-    const fileExists = fs.existsSync(filePath);
-    if (!fileExists) {
-        return { tag, stamp, dayStart, dayEnd, friendNames, fileExists, perFriend: [], totals: { updated: 0, alreadyMarked: 0, noLine: 0 } };
-    }
-    const perFriend = friendNames.map((name) => {
-        const fileRes = updateFile({ file: filePath, keys: [name], tag, stamp });
-        let status = 'no-line';
-        if (fileRes.updated > 0) status = 'updated';
-        else if (fileRes.alreadyMarked > 0) status = 'already-marked';
-        return { friend: name, status, file: fileRes };
+    const files = resolveFiles(file).map((filePath) => {
+        const fileExists = fs.existsSync(filePath);
+        if (!fileExists) {
+            return { path: filePath, fileExists, perFriend: [], totals: { updated: 0, alreadyMarked: 0, noLine: 0 } };
+        }
+        const perFriend = friendNames.map((name) => {
+            const fileRes = updateFile({ file: filePath, keys: [name], tag, stamp });
+            let status = 'no-line';
+            if (fileRes.updated > 0) status = 'updated';
+            else if (fileRes.alreadyMarked > 0) status = 'already-marked';
+            return { friend: name, status, file: fileRes };
+        });
+        const totals = {
+            updated: perFriend.filter((p) => p.status === 'updated').length,
+            alreadyMarked: perFriend.filter((p) => p.status === 'already-marked').length,
+            noLine: perFriend.filter((p) => p.status === 'no-line').length
+        };
+        return { path: filePath, fileExists, perFriend, totals };
     });
-    const totals = {
-        updated: perFriend.filter((p) => p.status === 'updated').length,
-        alreadyMarked: perFriend.filter((p) => p.status === 'already-marked').length,
-        noLine: perFriend.filter((p) => p.status === 'no-line').length
-    };
-    return { tag, stamp, dayStart, dayEnd, friendNames, fileExists, filePath, perFriend, totals };
+    return { tag, stamp, dayStart, dayEnd, friendNames, files };
+}
+
+// Auto-detect mode: for the given day, mark every recipient with the tag of the
+// item they actually received (from sent_gifts AND friends.gifted_game), so one
+// run back-fills all packs without specifying --tag. Unmapped items are skipped.
+function syncAuto({ date, file } = {}) {
+    const ts = date ? parseDate(date) : nowEpoch();
+    const stamp = fmtDate(ts);
+    const [dayStart, dayEnd] = localDayRange(ts);
+
+    const detected = [];        // {friend, tag}
+    const unknown = new Set();  // item/game names with no tag mapping
+    const add = (rows) => rows.forEach((r) => {
+        const tag = tagForGameName(r.game);
+        if (tag) detected.push({ friend: r.friend_name, tag });
+        else if (r.game && r.game.trim()) unknown.add(r.game);
+    });
+    add(findAllSentInRange(dayStart, dayEnd));
+    add(findAllGiftedInRange(dayStart, dayEnd));
+
+    // Dedup (friend, tag).
+    const seen = new Set();
+    const pairs = detected.filter(({ friend, tag }) => {
+        const k = `${tag} ${(friend || '').toLowerCase()}`;
+        if (!friend || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+    });
+
+    const files = resolveFiles(file).map((filePath) => {
+        const fileExists = fs.existsSync(filePath);
+        if (!fileExists) {
+            return { path: filePath, fileExists, perFriend: [], totals: { updated: 0, alreadyMarked: 0, noLine: 0 } };
+        }
+        const perFriend = pairs.map(({ friend, tag }) => {
+            const fileRes = updateFile({ file: filePath, keys: [friend], tag, stamp });
+            let status = 'no-line';
+            if (fileRes.updated > 0) status = 'updated';
+            else if (fileRes.alreadyMarked > 0) status = 'already-marked';
+            return { friend, tag, status };
+        });
+        const totals = {
+            updated: perFriend.filter((p) => p.status === 'updated').length,
+            alreadyMarked: perFriend.filter((p) => p.status === 'already-marked').length,
+            noLine: perFriend.filter((p) => p.status === 'no-line').length
+        };
+        return { path: filePath, fileExists, perFriend, totals };
+    });
+    return { stamp, dayStart, dayEnd, pairs, unknown: [...unknown], files };
 }
 
 function parseArgs(argv) {
@@ -255,6 +427,7 @@ function parseArgs(argv) {
         if (a.startsWith('--file=')) out.file = a.slice('--file='.length);
         else if (a.startsWith('--tag=')) out.tag = a.slice('--tag='.length);
         else if (a.startsWith('--date=')) out.date = a.slice('--date='.length);
+        else if (a === '--auto') out.auto = true;
         else if (a.startsWith('--')) throw new Error(`unknown flag: ${a}`);
         else out.positional.push(a);
     }
@@ -272,24 +445,49 @@ function runCli() {
     const [friendPos, tagPos, datePos] = args.positional;
     const tag = tagPos || args.tag || DEFAULT_TAG;
     const date = datePos || args.date;
-    const filePath = args.file || process.env.GIFT_FILE || DEFAULT_FILE;
 
     try {
+        if (!friendPos && (args.auto || tag === 'auto')) {
+            const res = syncAuto({ date, file: args.file });
+            console.log(`Auto sync: day=${fmtDate(res.dayStart)} (local)`);
+            const byTag = {};
+            res.pairs.forEach((p) => { (byTag[p.tag] = byTag[p.tag] || new Set()).add(p.friend); });
+            Object.entries(byTag).forEach(([t, s]) => console.log(`  tag='${t}': ${s.size} recipient(s)`));
+            if (res.pairs.length === 0) console.log('  no gifted recipients detected for this day');
+            if (res.unknown.length) console.log(`  (unmapped item(s), skipped: ${res.unknown.join(', ')})`);
+            let anyExists = false;
+            res.files.forEach((f) => {
+                if (!f.fileExists) return;
+                anyExists = true;
+                if (f.totals.updated === 0) return;
+                console.log(`  FILE: ${f.path}`);
+                f.perFriend.forEach((p) => {
+                    if (p.status === 'updated') console.log(`    ${p.friend} [${p.tag}]: updated`);
+                });
+                console.log(`  Totals: updated=${f.totals.updated} already-marked=${f.totals.alreadyMarked} no-line=${f.totals.noLine}`);
+            });
+            if (!anyExists) process.exit(2);
+            return;
+        }
         if (!friendPos) {
             const res = syncFromDB({ tag, date, file: args.file });
             const dayLabel = `${fmtDate(res.dayStart)} (local)`;
             console.log(`Sync mode: tag='${res.tag}' day=${dayLabel}`);
             console.log(`  ${res.friendNames.length} distinct friend(s) gifted in DB`);
-            if (!res.fileExists) {
-                console.log(`  FILE: ${filePath} not found — skipped`);
-                process.exit(2);
-            }
-            console.log(`  FILE: ${filePath}`);
-            res.perFriend.forEach((p) => {
-                const lineInfo = p.file.matches.map((m) => `line ${m.line}`).join(', ');
-                console.log(`    ${p.friend}: ${p.status}${lineInfo ? ` (${lineInfo})` : ''}`);
+            let anyExists = false;
+            res.files.forEach((f) => {
+                if (!f.fileExists) return;
+                anyExists = true;
+                if (f.totals.updated === 0) return;
+                console.log(`  FILE: ${f.path}`);
+                f.perFriend.forEach((p) => {
+                    if (p.status !== 'updated') return;
+                    const lineInfo = p.file.matches.map((m) => `line ${m.line}`).join(', ');
+                    console.log(`    ${p.friend}: ${p.status}${lineInfo ? ` (${lineInfo})` : ''}`);
+                });
+                console.log(`  Totals: updated=${f.totals.updated} already-marked=${f.totals.alreadyMarked} no-line=${f.totals.noLine}`);
             });
-            console.log(`  Totals: updated=${res.totals.updated} already-marked=${res.totals.alreadyMarked} no-line=${res.totals.noLine}`);
+            if (!anyExists) process.exit(2);
             return;
         }
 
@@ -302,15 +500,19 @@ function runCli() {
                 : '';
             console.log(`    [${r.account_steam_id}] ${r.friend_name}: ${r.status} ${detail}`.trim());
         });
-        if (!res.file.fileExists) {
-            console.log(`  FILE: ${filePath} not found — skipped`);
-        } else {
-            console.log(`  FILE: ${filePath}`);
-            console.log(`        keys=[${res.fileKeys.join(', ')}] updated=${res.file.updated} already-marked=${res.file.alreadyMarked}`);
-            res.file.matches.forEach((m) => console.log(`        line ${m.line}: ${m.status}`));
-            if (res.file.matches.length === 0) console.log('        no matching line found');
-        }
-        if (res.db.matched === 0 && res.file.updated === 0 && res.file.alreadyMarked === 0) process.exit(2);
+        let anyFileTouched = false;
+        res.files.forEach((f) => {
+            if (!f.fileExists) {
+                console.log(`  FILE: ${f.path} not found — skipped`);
+                return;
+            }
+            console.log(`  FILE: ${f.path}`);
+            console.log(`        keys=[${res.fileKeys.join(', ')}] updated=${f.updated} already-marked=${f.alreadyMarked}`);
+            f.matches.forEach((m) => console.log(`        line ${m.line}: ${m.status}`));
+            if (f.matches.length === 0) console.log('        no matching line found');
+            if (f.updated > 0 || f.alreadyMarked > 0) anyFileTouched = true;
+        });
+        if (res.db.matched === 0 && !anyFileTouched) process.exit(2);
     } catch (err) {
         console.error(`Error: ${err.message}`);
         process.exit(1);
@@ -319,4 +521,4 @@ function runCli() {
 
 if (require.main === module) runCli();
 
-module.exports = { markGifted, syncFromDB };
+module.exports = { markGifted, syncFromDB, syncAuto };

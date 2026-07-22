@@ -2,9 +2,10 @@ const SteamUser = require('steam-user');
 const SteamCommunity = require('steamcommunity');
 const https = require('https');
 const {
-    saveAccount, saveFriends, saveLicenses, saveGifts,
+    saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts,
     saveRefreshToken, getRefreshToken, clearRefreshToken
 } = require('./db');
+const { getUserCountry, getAccountPoints, fetchCommunityPage } = require('./steam_helpers');
 
 const STEAM_API_KEY = 'EFB5DCE316D3146FD6EFA3BECB8BCB80';
 
@@ -60,6 +61,42 @@ function parsePendingGifts(html) {
     });
 }
 
+function collapseWs(s) {
+    return (s || '').replace(/\s+/g, ' ').trim();
+}
+
+// Parse the "Sent Gifts" section of the inventory page: gifts this account sent
+// to a friend that haven't been accepted yet (each carries a "Resend gift..."
+// action). Distinct markup from received gifts (parsePendingGifts). Each block:
+//   <div class="sent_gift">
+//     ... <a href=".../checkout/sendgift/<gift_id>">Resend gift...</a> ...
+//     <div class="gift_item_details"><b>item name</b><br>Steam Gift</div>
+//     <div class="gift_status_area">Sent to <a .../profiles/<id>>name</a> on <date></div>
+//   </div>
+function parseSentGifts(html) {
+    return html.split('<div class="sent_gift">').slice(1).map((raw) => {
+        // Bound each block: the section ends at the next header or sent_gift block.
+        const block = raw.split(/<div class="pending_gifts_header">/)[0];
+        const idMatch = block.match(/checkout\/sendgift\/(\d+)/);
+        if (!idMatch) return null;
+        const nameMatch = block.match(/<div class="gift_item_details">\s*<b[^>]*>([\s\S]*?)<\/b>/);
+        const detailMatch = block.match(/<\/b>\s*<br>\s*([\s\S]*?)\s*<\/div>/);
+        const statusArea = (block.match(/<div class="gift_status_area">([\s\S]*?)<\/div>/) || [])[1] || '';
+        const recipMatch = statusArea.match(/profiles\/(\d+)"[^>]*>([^<]+)<\/a>/);
+        const dateMatch = statusArea.match(/<\/a>\s*on\s+([\s\S]+?)\s*$/);
+        return {
+            gift_id: idMatch[1],
+            item_name: nameMatch ? collapseWs(nameMatch[1]) : '(unknown)',
+            detail: detailMatch ? collapseWs(detailMatch[1]) : null,
+            recipient_steam_id: recipMatch ? recipMatch[1] : null,
+            recipient_name: recipMatch ? recipMatch[2].trim() : null,
+            sent_at: dateMatch ? collapseWs(dateMatch[1]) : null,
+            status: 'pending',
+            store_url: `https://store.steampowered.com/${idMatch[0]}`
+        };
+    }).filter(Boolean);
+}
+
 /**
  * Scan a single account and persist its data to the DB.
  * Resolves with { ok, account, reason?, partial? } — never rejects.
@@ -75,11 +112,16 @@ function scanAccount(account, opts = {}) {
         const client = new SteamUser({
             picCacheSize: 100,
             picsCacheAll: true,
-            changelistUpdateInterval: 10000
+            changelistUpdateInterval: 10000,
+            // Renew the refresh token after a refresh-token login so its ~200-day
+            // expiry keeps sliding forward. Steam only actually renews once the
+            // token is past ~half its lifetime; otherwise this is a no-op. On
+            // success it re-emits 'refreshToken' → saveRefreshToken (below).
+            renewRefreshTokens: true
         });
         const community = new SteamCommunity();
 
-        const flags = { account: false, wallet: false, friends: false, licenses: false, gifts: false, levels: false };
+        const flags = { account: false, email: false, country: false, points: false, wallet: false, friends: false, licenses: false, gifts: false, levels: false };
         let steamID = null;
         let resolved = false;
 
@@ -125,17 +167,42 @@ function scanAccount(account, opts = {}) {
             log(`${tag} logged in: ${steamID}`);
             client.setPersona(SteamUser.EPersonaState.Online);
             client.gamesPlayed([]);
+
+            // Real registered country — NOT accountInfo's ip_country (login-IP geolocation).
+            getUserCountry(client, steamID).then((country) => {
+                saveAccount({ steam_id: steamID, country });
+                log(`${tag} country: ${country ?? '(none)'}`);
+                flags.country = true;
+                check();
+            });
+
+            getAccountPoints(client, steamID).then((points) => {
+                saveAccount({ steam_id: steamID, steam_points: points });
+                log(`${tag} points: ${points ?? '(none)'}`);
+                flags.points = true;
+                check();
+            });
         });
 
-        client.on('accountInfo', (info) => {
+        // accountInfo passes positional args (name, country, ...), NOT an object.
+        // We persist persona here; country comes from getUserCountry (the ip_country
+        // arg is the login-IP geolocation, not the account's real country).
+        client.on('accountInfo', (name) => {
             saveAccount({
                 steam_id: steamID,
                 account_name: account.username,
-                persona: info.name,
-                country: info.country,
-                email: client.emailInfo?.address
+                persona: name
             });
             flags.account = true;
+            check();
+        });
+
+        // Email arrives in its own message (ClientEmailAddrInfo), independent of
+        // accountInfo — so it must be persisted from this event, not from accountInfo.
+        client.on('emailInfo', (address) => {
+            saveAccount({ steam_id: steamID, email: address });
+            log(`${tag} email: ${address ?? '(none)'}`);
+            flags.email = true;
             check();
         });
 
@@ -233,21 +300,22 @@ function scanAccount(account, opts = {}) {
             });
         });
 
-        client.on('webSession', (sessionID, cookies) => {
+        client.on('webSession', async (sessionID, cookies) => {
             community.setCookies(cookies);
             const url = `https://steamcommunity.com/profiles/${steamID}/inventory/`;
-            community.httpRequestGet(url, (err, res, data) => {
-                if (err || res.statusCode !== 200) {
-                    log(`${tag} inventory fetch failed:`, err?.message || `status ${res.statusCode}`);
-                    flags.gifts = true;
-                    return check();
-                }
-                const gifts = parsePendingGifts(data);
-                saveGifts(steamID, gifts);
-                log(`${tag} ${gifts.length} pending gifts saved`);
+            const { ok, status, data, error } = await fetchCommunityPage(community, url, { log, tag });
+            if (!ok) {
+                log(`${tag} inventory fetch failed:`, error?.message || `status ${status}`);
                 flags.gifts = true;
-                check();
-            });
+                return check();
+            }
+            const gifts = parsePendingGifts(data);
+            saveGifts(steamID, gifts);
+            const sent = parseSentGifts(data);
+            saveSentGifts(steamID, sent);
+            log(`${tag} ${gifts.length} received gifts, ${sent.length} sent gifts saved`);
+            flags.gifts = true;
+            check();
         });
 
         const cachedToken = getRefreshToken(account.username);
@@ -261,11 +329,11 @@ function scanAccount(account, opts = {}) {
     });
 }
 
-module.exports = { scanAccount };
+module.exports = { scanAccount, parsePendingGifts, parseSentGifts };
 // nookstostazr----fungaLrmbQV3
 // Run directly: node single.js
 if (require.main === module) {
-    const acc = { id: 1, username: 'nookstostazr', password: 'fungaLrmbQV3' };
+    const acc = { id: 1, username: 'pearlgrimshawnhtta', password: 'Funga5UD3' };
     scanAccount(acc).then((r) => {
         console.log('Result:', r);
         process.exit(r.ok ? 0 : 1);
