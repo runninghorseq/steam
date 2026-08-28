@@ -200,6 +200,14 @@ function enqueueSteamJob(job, run) {
 const args = process.argv.slice(2);
 const portFlag = args.find((a) => a.startsWith('--port='));
 const PORT = Number(portFlag ? portFlag.slice('--port='.length) : process.env.PORT || 3011);
+const hostFlag = args.find((a) => a.startsWith('--host='));
+const HOST = hostFlag ? hostFlag.slice('--host='.length) : (process.env.HOST || '127.0.0.1');
+// Shared-secret gate. Prefer the env var (a --token= flag is visible in `ps`).
+// Empty = auth disabled (only allowed on loopback; see the startup guard).
+const tokenFlag = args.find((a) => a.startsWith('--token='));
+const AUTH_TOKEN = process.env.DASHBOARD_TOKEN || (tokenFlag ? tokenFlag.slice('--token='.length) : '') || '';
+const INSECURE = args.includes('--insecure');
+const isLoopback = (h) => h === '127.0.0.1' || h === '::1' || h === 'localhost';
 const WEB_DIR = path.join(__dirname, 'web');
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -308,6 +316,56 @@ function summary() {
 // ---------------------------------------------------------------------------
 // http plumbing
 // ---------------------------------------------------------------------------
+
+function parseCookies(req) {
+    const out = {};
+    (req.headers.cookie || '').split(';').forEach((p) => {
+        const i = p.indexOf('=');
+        if (i > 0) out[p.slice(0, i).trim()] = decodeURIComponent(p.slice(i + 1).trim());
+    });
+    return out;
+}
+
+// Constant-time token comparison (length-guarded so timingSafeEqual won't throw).
+function tokenMatches(given) {
+    if (!given || given.length !== AUTH_TOKEN.length) return false;
+    try {
+        return crypto.timingSafeEqual(Buffer.from(given), Buffer.from(AUTH_TOKEN));
+    } catch (_) {
+        return false;
+    }
+}
+
+// Gate every request behind the shared secret. Returns true to proceed; when it
+// returns false it has already answered (401 or a redirect). No-op when no token
+// is configured. The token is accepted from ?token= (once — it's then stored in
+// an HttpOnly cookie and stripped from the URL), a dash_token cookie, an
+// X-Dashboard-Token header, or Authorization: Bearer.
+function checkAuth(req, res, url) {
+    if (!AUTH_TOKEN) return true;
+
+    const q = url.searchParams.get('token');
+    if (q && tokenMatches(q)) {
+        res.setHeader('Set-Cookie', `dash_token=${encodeURIComponent(AUTH_TOKEN)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000`);
+        if (url.pathname.startsWith('/api/')) return true;
+        url.searchParams.delete('token');
+        res.writeHead(302, { Location: url.pathname + (url.search ? url.search : '') });
+        res.end();
+        return false;
+    }
+
+    const cookie = parseCookies(req).dash_token;
+    const header = req.headers['x-dashboard-token'] || (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    if (tokenMatches(cookie) || tokenMatches(header)) return true;
+
+    if (url.pathname.startsWith('/api/')) {
+        sendJSON(res, 401, { error: 'unauthorized' });
+    } else {
+        res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end('<!doctype html><meta charset=utf-8><body style="font:15px system-ui;max-width:34rem;margin:12vh auto;padding:0 1rem;color:#333"><h2>Authorization required</h2><p>Open this dashboard with <code>?token=YOUR_TOKEN</code> appended once. It is then remembered in a cookie for this browser.</p></body>');
+    }
+    return false;
+}
 
 function sendJSON(res, code, body) {
     const payload = JSON.stringify(body);
@@ -675,6 +733,7 @@ async function handleAPI(req, res, url) {
 
 const server = http.createServer((req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    if (!checkAuth(req, res, url)) return;
     if (url.pathname.startsWith('/api/')) {
         handleAPI(req, res, url).catch((err) => {
             console.error(`${req.method} ${url.pathname}:`, err.message);
@@ -685,8 +744,23 @@ const server = http.createServer((req, res) => {
     serveStatic(res, url.pathname);
 });
 
-server.listen(PORT, '127.0.0.1', () => {
+// Refuse to expose an unauthenticated admin panel — it has full access to the
+// account fleet. Loopback stays open for convenience.
+if (!isLoopback(HOST) && !AUTH_TOKEN && !INSECURE) {
+    console.error(`Refusing to bind ${HOST}:${PORT} with no auth — this dashboard controls all your accounts.`);
+    console.error('Set a token, e.g.:  DASHBOARD_TOKEN=$(openssl rand -hex 16) node server.js --host=0.0.0.0');
+    console.error('Override at your own risk:  node server.js --host=0.0.0.0 --insecure');
+    process.exit(1);
+}
+
+server.listen(PORT, HOST, () => {
     const s = summary();
-    console.log(`Steam project dashboard -> http://127.0.0.1:${PORT}`);
+    const shown = isLoopback(HOST) ? '127.0.0.1' : HOST;
+    console.log(`Steam project dashboard -> http://${shown}:${PORT}`);
+    console.log(AUTH_TOKEN
+        ? '  auth: token required (append ?token=... once, then it is cookied)'
+        : '  auth: DISABLED — loopback only');
+    if (!isLoopback(HOST) && !AUTH_TOKEN) console.log('  WARNING: bound to a network interface with NO auth (--insecure)');
+    if (!isLoopback(HOST) && AUTH_TOKEN) console.log('  NOTE: plain HTTP — the token travels in clear; put TLS (tunnel/proxy) in front for real exposure.');
     console.log(`  ${s.accounts} accounts | ${s.friends} friends | ${s.sent_gifts} sent gifts | ${s.open_loans} open loan(s)`);
 });
