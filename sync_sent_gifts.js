@@ -15,11 +15,11 @@
 //   node sync_sent_gifts.js                  # all accounts with sent_gifts rows
 //   node sync_sent_gifts.js DeanaIsabel      # just that account (by name)
 //   node sync_sent_gifts.js --names=a,b,c    # several accounts
-//   node sync_sent_gifts.js -c 5 -t 90000    # concurrency / per-account timeout
+//   node sync_sent_gifts.js -c 5 -t 180000   # concurrency / per-account timeout
 
 const SteamUser = require('steam-user');
 const SteamCommunity = require('steamcommunity');
-const { db, saveRefreshToken, getRefreshToken, clearRefreshToken } = require('./db');
+const { db, saveRefreshToken, getRefreshToken, clearRefreshToken, parseGiftedAt } = require('./db');
 const { parseSentGifts } = require('./single');
 const { fetchCommunityPage } = require('./steam_helpers');
 
@@ -70,7 +70,7 @@ const reconcileSentGifts = db.transaction((accountSteamID, liveGifts) => {
             recipient_name: g.recipient_name ?? null,
             item_name: g.item_name ?? null,
             detail: g.detail ?? null,
-            sent_at: g.sent_at ?? null,
+            sent_at: parseGiftedAt(g.sent_at),
             status: g.status ?? null,
             store_url: g.store_url ?? null,
             scanned_at: ts,
@@ -85,12 +85,16 @@ const reconcileSentGifts = db.transaction((accountSteamID, liveGifts) => {
  * Resolves with { ok, username, kept?, deleted?, reason? } — never rejects.
  */
 function syncAccount(account, opts = {}) {
-    const { timeout = 60000, log = console.log } = opts;
+    const { timeout = 120000, log = console.log } = opts;
     const tag = `[${account.username}]`;
 
     return new Promise((resolve) => {
         const client = new SteamUser({ renewRefreshTokens: true });
-        const community = new SteamCommunity();
+        // steamcommunity waits 50s per request by default, which is longer than a
+        // dead socket is worth: a healthy inventory page answers in seconds. Cap it
+        // low enough that fetchCommunityPage's 4 retries + backoff still fit inside
+        // the per-account timeout instead of being cut off mid-retry.
+        const community = new SteamCommunity({ timeout: 15000 });
         let steamID = null;
         let resolved = false;
 
@@ -169,7 +173,7 @@ async function runWithConcurrency(items, n, worker) {
 
 if (require.main === module) {
     let concurrency = 3;
-    let timeout = 60000;
+    let timeout = 120000;
     const names = [];
     const argv = process.argv.slice(2);
     for (let i = 0; i < argv.length; i++) {

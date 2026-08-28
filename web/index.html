@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Steam Project Dashboard</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+    <h1>Steam Project <span id="db-note">dashboard</span></h1>
+    <nav>
+        <button data-view="accounts" class="on">Accounts</button>
+        <button data-view="loans">Loans</button>
+        <button data-view="sent">Sent gifts</button>
+        <button data-view="pending">Pending gifts</button>
+        <button data-view="friends">Friends</button>
+        <button data-view="scan">Upload / Scan</button>
+    </nav>
+    <button class="act" id="refresh" style="margin-left:auto">Refresh</button>
+</header>
+
+<main>
+    <div class="stats" id="stats"></div>
+    <div id="view"></div>
+</main>
+
+<dialog id="detail">
+    <div class="dlg-head">
+        <h2 id="detail-title">—</h2>
+        <button class="act" id="detail-close" style="margin-left:auto">Close</button>
+    </div>
+    <div class="dlg-body" id="detail-body"></div>
+</dialog>
+
+<script src="/app.js"></script>
+</body>
+</html>

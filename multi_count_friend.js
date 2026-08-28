@@ -4,7 +4,7 @@ const ACCOUNTS = require('./steam_accounts');
 
 // const run = Object.keys(ACCOUNTS);
 
-const run = ['JamiNina', 'dealezayanqr', 'kairoumberkpchh'];
+const run = ['beatrizaceciliatv']
 // run=  ['elianagallagherdivoc', 'luxorzenithwxqvy', 'josielola3']
 
 // const run = ['ahnerblissv', 'urcialunana', 'woithsuhardy', 'konzehodorhq', 'mamermidhag', 'hovisneacexa', 'skiefarini', 'tylkahycheq', 'dibbaachenf', 'alanaawreyys', 'mekeezekaso', 'sausezamerfq', 'rietashaut', 'bootskiriln', 'lairybovisls'];

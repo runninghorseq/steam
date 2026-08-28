@@ -25,6 +25,23 @@ CREATE TABLE IF NOT EXISTS accounts (
     wallet_balance_cents  INTEGER,          -- Cents, divide by 100 for display
     steam_level           INTEGER,          -- Profile level (0+)
     steam_points          INTEGER,          -- Steam Points balance (LoyaltyRewards.GetSummary)
+    loan_id               INTEGER,          -- FK -> account_loans.id: this account has been
+                                            -- lent out. Set by lend_account.js and KEPT after
+                                            -- return, so "has ever been lent" stays knowable.
+                                            -- While set, saveAccount() refuses to overwrite
+                                            -- wallet_balance_cents / wallet_currency /
+                                            -- steam_level, because those numbers were moved
+                                            -- by whoever borrowed it. Clear with:
+                                            --   node lend_account.js unlink <account>
+    skip_wallet           INTEGER NOT NULL DEFAULT 0, -- 1 = never refresh this account's
+                                            -- wallet/level. update_wallet_level.js drops it
+                                            -- from --mode=all and --mode=wallet runs (gift
+                                            -- scans still include it). Managed by
+                                            -- wallet_skip.js; unrelated to loan_id, which
+                                            -- also freezes the columns in saveAccount().
+    source                TEXT,             -- Where this account came from, e.g. the
+                                            -- uploaded file's name. Set on the scan that
+                                            -- first imported it; kept on later re-scans.
     scanned_at            INTEGER,          -- Last scan unix epoch (seconds)
     created_at            INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at            INTEGER NOT NULL DEFAULT (unixepoch())
@@ -109,12 +126,33 @@ CREATE TABLE IF NOT EXISTS sent_gifts (
     recipient_name      TEXT,
     item_name           TEXT,             -- e.g. "Path of Exile 2 - Early Access Supporter Pack (Special)"
     detail              TEXT,             -- Secondary line, e.g. "Steam Gift"
-    sent_at             TEXT,             -- Human-readable date string from the page, e.g. "7 Jun"
+    sent_at             INTEGER,          -- Unix epoch, parsed from Steam's "7 Jun" string (current year assumed)
     status              TEXT,             -- "pending" (sent, awaiting acceptance)
     store_url           TEXT,             -- The sendgift/resend checkout URL
     scanned_at          INTEGER,          -- Unix epoch
     created_at          INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at          INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+-- ----------------------------------------------------------------------------
+-- account_loans: accounts temporarily handed to someone else, with the
+--   pre-handover snapshot used to diff the account state on return.
+--   Written by lend_account.js. A loan is "open" until returned_at is set.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS account_loans (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_name      TEXT NOT NULL,     -- Steam login name
+    account_steam_id  TEXT,              -- SteamID64 (from the snapshot)
+    borrower          TEXT,              -- Who has it
+    note              TEXT,
+    lent_at           INTEGER NOT NULL,  -- Unix epoch
+    due_at            INTEGER NOT NULL,  -- Unix epoch (lent_at + days)
+    returned_at       INTEGER,           -- Set once the password has been rotated
+    password_changed  INTEGER NOT NULL DEFAULT 0, -- 1 = old password verified dead
+    snapshot_json     TEXT,              -- Account state captured at hand-over
+    return_json       TEXT,              -- Account state captured on return
+    created_at        INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at        INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
 -- ----------------------------------------------------------------------------

@@ -77,15 +77,23 @@ function readProcessedRawLines(fileName) {
 // Parse all accounts
 // FILE_NAME = 'steam_accounts.txt'
 // FILE_NAME = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/smb/1k_outlook_2005.txtresult.txt'
-FILE_NAME = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/smb/1491_of_3k_outlook.txtresult.txt'
+// FILE_NAME = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/smb/1491_of_3k_outlook.txtresult.txt'
+FILE_NAME = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260621_2K_account.txtresult.txt'
 // FILE_NAME = '/Users/lequangha/fungaming/fungame/steam/2650_outlook.txt.missing.txtresult.txt'
 const allAccounts = parseSteamAccounts(FILE_NAME);
 console.log(`Loaded ${allAccounts.length} accounts from file`);
 
 const ACCOUNTS = require('./steam_accounts');
 
+// steam_accounts.js keys are lowercase, so look them up case-insensitively —
+// otherwise a name like 'ChandramLolahh' silently resolves to no link.
+const ACCOUNTS_BY_LOWER = new Map(Object.keys(ACCOUNTS).map(k => [k.toLowerCase(), ACCOUNTS[k]]));
+const lookupAccount = (id) => ACCOUNTS[id] || ACCOUNTS_BY_LOWER.get(String(id).toLowerCase());
+
 // Which steamIDs to add — each entry resolves to one invite link via QUICK_INVITE_LINKS
-const run = ['josielola3', 'josielola3', 'lilahxandrapwpfg'];
+const run = ['bimbofrosinpkg', 'hulitvelez']
+    // 'kienpoe222', 'CleokCeceliahf', 'LaurelkJohnniehl']
+// const run = ['quilloasisludef', 'torrentleonardzcidb', 'ultranovathompsonxftuc'];
 
 
 // const run = ['forssmelsoey','tepozreams','tichvan1742000', 'duaneunger'];
@@ -115,10 +123,18 @@ if (accounts.length === 0) {
 
 
 console.log('\n=== Account List with Invite Links ===');
-const runLinks = run.map(id => ACCOUNTS[id] && ACCOUNTS[id].quickInviteLink).filter(Boolean);
+// Resolve `run` once, and say out loud which entries produced no link instead of
+// letting filter(Boolean) drop them silently.
+const runTargets = run.map(id => ({ id, link: (lookupAccount(id) || {}).quickInviteLink }));
+const unresolved = runTargets.filter(t => !t.link).map(t => t.id);
+if (unresolved.length) {
+    console.log(`WARNING: no quick invite link for: ${unresolved.join(', ')} — check steam_accounts.js`);
+}
+const runLinks = runTargets.filter(t => t.link).map(t => t.link);
+console.log(`Redeeming ${runLinks.length}/${run.length} link(s) per account`);
 accounts.forEach((acc) => {
     console.log(`[${acc.id}] Username: ${acc.username}, password: ${acc.password}`);
-    runLinks.forEach((link, i) => console.log(`    → Will redeem link ${i + 1}: ${link}`));
+    runTargets.filter(t => t.link).forEach((t, i) => console.log(`    → Will redeem link ${i + 1} (${t.id}): ${t.link}`));
     if (runLinks.length === 0) console.log(`    → No invite links configured`);
 });
 
@@ -131,7 +147,7 @@ const clients = accounts.map((account) => {
     });
 
     accClient.accountData = account;
-    accClient.inviteLinks = run.map(id => ACCOUNTS[id] && ACCOUNTS[id].quickInviteLink).filter(Boolean);
+    accClient.inviteLinks = runLinks;
 
 
     return accClient;
@@ -203,7 +219,7 @@ clients.forEach((accClient, index) => {
         console.log(`\n[${account.id}] ${account.username} - Logged in successfully!`);
         console.log(`[${account.id}] Steam ID:`, accClient.steamID.toString());
 
-        accClient.setPersona(SteamUser.EPersonaState.Online);
+        // accClient.setPersona(SteamUser.EPersonaState.Online);
 
         // Set persona name from email local-part, with a small delay so Steam is ready
         const personaName = (account.email || '').split('@')[0];

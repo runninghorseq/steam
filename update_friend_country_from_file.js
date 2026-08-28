@@ -54,8 +54,11 @@ const { db } = require('./db');
 //   .../acc_new_steam/20260526_1k_outlook_2005.txtresult.txt
 //   .../acc_new_steam/20260604_2650_outlook.txt.missing.txtresult.txt
 //   .../acc_new_steam/20260606_1491_of_3k_outlook.txtresult.txt
+//   .../acc_new_steam/20260504_steam_4k_outlook.txt
+///.  20260504_PTGO1774415483.txtresult.txt
+
 const DEFAULT_FILE =
-    '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260526_1k_outlook_2005.txtresult.txt';
+    '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260513_2650_outlook.txtresult.txt';
 
 const args = process.argv.slice(2);
 const COMMIT = args.includes('--commit');

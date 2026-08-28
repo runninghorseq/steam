@@ -46,7 +46,7 @@ DATE_REMOVAL = new Date('2025-11-28T00:00:00Z')
 const REMOVE_TIMESTAMP = Math.floor(DATE_REMOVAL.getTime() / 1000);
 
 // Date threshold for upper bound (remove friends added after this date)
-DATE_REMOVAL_MAX = new Date('2025-11-30T23:59:59Z')
+DATE_REMOVAL_MAX = new Date('2026-11-30T23:59:59Z')
 const REMOVE_TIMESTAMP_MAX = Math.floor(DATE_REMOVAL_MAX.getTime() / 1000);
 
 // List of friend names to remove (case-insensitive matching)
@@ -59,7 +59,7 @@ const FRIENDS_TO_REMOVE_BY_NAME = [
 // Friends in this list will NOT be removed even if they were added between ${DATE_REMOVAL.toLocaleDateString()} and ${DATE_REMOVAL_MAX.toLocaleDateString()}
 const FRIENDS_TO_KEEP = [
     // Add friend names here that should be kept, e.g.:
-    'ba949451', 'ae949471', 'pb949491', 'xl949738', 'vh950960', 'yk950983', 'it949285', 'kw949278', 'dt946742', 'qp947176', 'gf947182', 'mx947285', 'sr946848'
+    ''
 ];
 
 // Helper function to fetch friend list from Steam Web API

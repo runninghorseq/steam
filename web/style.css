@@ -1,0 +1,126 @@
+:root {
+    --bg: #0f1216;
+    --panel: #161b22;
+    --panel-2: #1c2230;
+    --border: #2a3140;
+    --text: #e6edf3;
+    --muted: #8b98a9;
+    --accent: #58a6ff;
+    --good: #3fb950;
+    --warn: #d29922;
+    --bad: #f85149;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: light) {
+    :root {
+        --bg: #f6f8fa; --panel: #ffffff; --panel-2: #f0f3f6; --border: #d6dde5;
+        --text: #1f2328; --muted: #636c76; --accent: #0969da;
+    }
+}
+* { box-sizing: border-box; }
+body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 10;
+}
+h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+h1 span { color: var(--muted); font-weight: 400; }
+nav { display: flex; gap: 4px; }
+nav button {
+    background: none; border: 1px solid transparent; color: var(--muted);
+    padding: 5px 12px; border-radius: 6px; cursor: pointer; font: inherit;
+}
+nav button:hover { color: var(--text); background: var(--panel-2); }
+nav button.on { color: var(--text); background: var(--panel-2); border-color: var(--border); }
+main { padding: 16px 20px 60px; }
+
+.stats { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.stat {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 14px; min-width: 108px;
+}
+.stat b { display: block; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; }
+.stat.alert b { color: var(--bad); }
+
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+input[type=search], input[type=text], input[type=number], select {
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    padding: 6px 10px; border-radius: 6px; font: inherit; min-width: 0;
+}
+input[type=search] { min-width: 260px; }
+.chip {
+    background: var(--panel); border: 1px solid var(--border); color: var(--muted);
+    padding: 5px 11px; border-radius: 999px; cursor: pointer; font-size: 12px;
+}
+.chip:hover { color: var(--text); }
+.chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.count { color: var(--muted); font-size: 12px; margin-left: auto; }
+
+/* The table scrolls inside this box so the column headers can stick to its top
+   without fighting the page header. Sticky <th> offsets get shifted down by the
+   table's own containing block in Chrome, so top:0 + a scroll container is the
+   only placement that lands where you expect. */
+.table-wrap {
+    max-height: calc(100vh - 250px); min-height: 180px; overflow: auto;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
+}
+table { width: 100%; border-collapse: collapse; background: var(--panel); }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th {
+    position: sticky; top: 0; background: var(--panel-2); font-size: 11px; text-transform: uppercase;
+    letter-spacing: .5px; color: var(--muted); cursor: pointer; user-select: none; z-index: 5;
+}
+th.no-sort { cursor: default; }
+th .arrow { color: var(--accent); }
+tbody tr:hover { background: var(--panel-2); }
+tbody tr.clickable { cursor: pointer; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); }
+td.name { font-family: var(--mono); }
+td.dim, .dim { color: var(--muted); }
+
+.tag { font-size: 10px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--muted); }
+.tag.skip { color: var(--warn); border-color: var(--warn); }
+.tag.loan { color: var(--accent); border-color: var(--accent); }
+.tag.notok { color: var(--bad); border-color: var(--bad); }
+.tag.over { color: var(--bad); border-color: var(--bad); }
+.tag.done { color: var(--good); border-color: var(--good); }
+
+button.act {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    padding: 4px 9px; border-radius: 6px; cursor: pointer; font: inherit; font-size: 12px;
+}
+button.act:hover { border-color: var(--accent); color: var(--accent); }
+button.act:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover { color: #fff; opacity: .9; }
+button.act.danger:hover { border-color: var(--bad); color: var(--bad); }
+
+dialog {
+    background: var(--panel); color: var(--text); border: 1px solid var(--border);
+    border-radius: 10px; padding: 0; max-width: 1000px; width: 92vw; max-height: 86vh;
+}
+dialog::backdrop { background: rgba(0,0,0,.6); }
+.dlg-head {
+    display: flex; align-items: center; gap: 12px; padding: 14px 18px;
+    border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel);
+}
+.dlg-head h2 { margin: 0; font-size: 15px; font-family: var(--mono); }
+.dlg-body { padding: 16px 18px; overflow: auto; max-height: calc(86vh - 60px); }
+.kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; margin-bottom: 18px; }
+.kv div { background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; }
+.kv span { display: block; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+.kv b { font-weight: 600; font-family: var(--mono); }
+.sub-tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+.empty { color: var(--muted); padding: 22px; text-align: center; }
+form.inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.toast {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 16px; z-index: 100; box-shadow: 0 6px 24px rgba(0,0,0,.35);
+}
+.toast.err { border-color: var(--bad); color: var(--bad); }

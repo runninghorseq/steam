@@ -27,6 +27,12 @@ async function runSequentially(items, worker) {
     return results;
 }
 
+// Exported so the web dashboard (server.js) parses uploads with exactly this
+// logic instead of keeping a second copy that can drift.
+module.exports = { parseSteamAccounts, runSequentially };
+
+if (require.main !== module) return;
+
 (async () => {
     const FILE_NAME = process.argv[2] || 'steam_accounts.txt';
     const TIMEOUT = parseInt(process.argv[3] || '60000', 10);
@@ -43,8 +49,10 @@ async function runSequentially(items, worker) {
     const results = await runSequentially(accounts, (acc) => scanAccount(acc, { timeout: TIMEOUT }));
 
     const ok = results.filter(r => r?.ok).length;
-    const failed = results.filter(r => !r?.ok);
-    console.log(`\n=== Done: ${ok}/${results.length} ok ===`);
+    const guardSkipped = results.filter(r => !r?.ok && r?.skipped);
+    const failed = results.filter(r => !r?.ok && !r?.skipped);
+    console.log(`\n=== Done: ${ok}/${results.length} ok, ${failed.length} failed${guardSkipped.length ? `, ${guardSkipped.length} Steam-Guard-skipped` : ''} ===`);
     failed.forEach(r => console.log(`  FAIL ${r.account.username}: ${r.reason}`));
+    guardSkipped.forEach(r => console.log(`  SKIP ${r.account.username}: ${r.reason}`));
     process.exit(0);
 })();

@@ -208,11 +208,25 @@ if (require.main === module) {
     //   node update_wallet_level.js DeanaIsabel -c 1 -t 90000
     //   node update_wallet_level.js --mode=wallet           # wallet balance only
     //   node update_wallet_level.js --mode=gifts            # sent/received gift scan only
+    //   node update_wallet_level.js --include-lent          # also refresh loaned accounts
+    //   node update_wallet_level.js --include-skipped       # also refresh skip_wallet accounts
+    //
+    // Accounts flagged skip_wallet (see wallet_skip.js) are dropped from 'all' and
+    // 'wallet' runs — they are the ones whose balance/level nobody tracks. They
+    // stay in '--mode=gifts', which never touches those columns.
+    //
+    // Accounts flagged as loaned (accounts.loan_id, set by lend_account.js) are
+    // skipped: their wallet balance and Steam level belong to whoever borrowed
+    // them, so refreshing would overwrite the pre-loan numbers. db.saveAccount()
+    // blocks those three columns for them too, so --include-lent still will not
+    // write them — it only lets the login/gift scan run.
     // Bare positional args are account names (an account name may itself be
     // numeric, so concurrency/timeout are flags, not positionals).
     let concurrency = 5;
     let timeout = 60000;
     let mode = 'all';
+    let includeLent = false;
+    let includeSkipped = false;
     const names = [];
     const argv = process.argv.slice(2);
     for (let i = 0; i < argv.length; i++) {
@@ -223,6 +237,8 @@ if (require.main === module) {
         else if (a.startsWith('--timeout=')) timeout = parseInt(a.split('=')[1], 10);
         else if (a === '-m' || a === '--mode') mode = argv[++i];
         else if (a.startsWith('--mode=')) mode = a.split('=')[1];
+        else if (a === '--include-lent') includeLent = true;
+        else if (a === '--include-skipped') includeSkipped = true;
         else if (a.startsWith('--names=')) names.push(...a.slice('--names='.length).split(',').map((s) => s.trim()).filter(Boolean));
         else if (a.startsWith('--')) { console.error(`unknown flag: ${a}`); process.exit(1); }
         else names.push(a);
@@ -238,6 +254,14 @@ if (require.main === module) {
     const tokenNames = db.prepare('SELECT account_name FROM auth_tokens').all().map((r) => r.account_name);
     const byLower = new Map(tokenNames.map((n) => [n.toLowerCase(), n]));
 
+    // Accounts that have been lent out — their wallet/level is not ours to refresh.
+    const lentNames = new Set(
+        db.prepare('SELECT account_name FROM accounts WHERE loan_id IS NOT NULL AND account_name IS NOT NULL')
+            .all()
+            .map((r) => r.account_name.toLowerCase())
+    );
+    const isLent = (name) => lentNames.has(String(name).toLowerCase());
+
     let accounts;
     if (names.length) {
         accounts = names.map((n) => ({ username: byLower.get(n.toLowerCase()) || n }));
@@ -250,6 +274,39 @@ if (require.main === module) {
         // Every account we hold a refresh token for (login without 2FA).
         accounts = db.prepare('SELECT account_name AS username FROM auth_tokens ORDER BY account_name').all();
         console.log(`Loaded ${accounts.length} accounts with cached tokens. Mode: ${mode}. Concurrency: ${concurrency}.`);
+    }
+
+    // skip_wallet only matters for the modes that write wallet/level.
+    if (!includeSkipped && (mode === 'all' || mode === 'wallet')) {
+        const skipNames = new Set(
+            db.prepare('SELECT account_name FROM accounts WHERE skip_wallet = 1 AND account_name IS NOT NULL')
+                .all()
+                .map((r) => r.account_name.toLowerCase())
+        );
+        if (skipNames.size) {
+            const dropped = accounts.filter((a) => skipNames.has(String(a.username).toLowerCase()));
+            accounts = accounts.filter((a) => !skipNames.has(String(a.username).toLowerCase()));
+            if (dropped.length) {
+                console.log(`Skipping ${dropped.length} skip_wallet account(s): ${dropped.map((a) => a.username).join(', ')}`);
+                console.log('Use --include-skipped to refresh them anyway, or `node wallet_skip.js remove <name>` to clear the flag.');
+            }
+        }
+    }
+
+    if (!includeLent) {
+        const skipped = accounts.filter((a) => isLent(a.username));
+        accounts = accounts.filter((a) => !isLent(a.username));
+        if (skipped.length) {
+            console.log(`Skipping ${skipped.length} loaned account(s) (accounts.loan_id set): ${skipped.map((a) => a.username).join(', ')}`);
+            console.log('Use --include-lent to log into them anyway, or `node lend_account.js unlink <account>` to unfreeze one.');
+        }
+    } else if (accounts.some((a) => isLent(a.username))) {
+        console.log('--include-lent: loaned accounts included, but wallet/level columns stay frozen by db.saveAccount().');
+    }
+
+    if (accounts.length === 0) {
+        console.log('Nothing to refresh.');
+        process.exit(0);
     }
 
     runWithConcurrency(accounts, concurrency, (acc) => updateWalletLevel(acc, { timeout, mode }))

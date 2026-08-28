@@ -8,7 +8,7 @@
 #
 # Usage:
 #   ./loop_multi_friend.sh                 # default delay
-#   DELAY=600 ./loop_multi_friend.sh       # wait 600s (10 min) between batches
+#   DELAY=180 ./loop_multi_friend.sh       # wait 600s (10 min) between batches
 #   MAX_RUNS=5 ./loop_multi_friend.sh      # stop after 5 batches
 #
 set -u

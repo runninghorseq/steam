@@ -156,6 +156,17 @@ function scanAccount(account, opts = {}) {
             finish({ ok: false, reason: err.message, account });
         });
 
+        // Steam is asking for a 2FA code (mobile authenticator or email). We have no
+        // way to supply one in an unattended scan, so skip the account immediately —
+        // not calling the callback and finishing here logs off before it can hang
+        // until the timeout. Flagged skipped:true so callers can report it apart
+        // from a hard failure.
+        client.on('steamGuard', (domain) => {
+            const kind = domain ? `email (${domain})` : 'mobile authenticator';
+            log(`${tag} Steam Guard required (${kind}) — skipping`);
+            finish({ ok: false, skipped: true, reason: `Steam Guard required (${kind})`, account });
+        });
+
         // steam-user emits this once after a successful login; persist for next run.
         client.on('refreshToken', (token) => {
             saveRefreshToken(account.username, token);
@@ -191,7 +202,10 @@ function scanAccount(account, opts = {}) {
             saveAccount({
                 steam_id: steamID,
                 account_name: account.username,
-                persona: name
+                persona: name,
+                // Where this account was imported from (e.g. the uploaded file name),
+                // if the caller supplied one. COALESCE keeps it on later re-scans.
+                source: account.source ?? null
             });
             flags.account = true;
             check();
@@ -333,7 +347,7 @@ module.exports = { scanAccount, parsePendingGifts, parseSentGifts };
 // nookstostazr----fungaLrmbQV3
 // Run directly: node single.js
 if (require.main === module) {
-    const acc = { id: 1, username: 'pearlgrimshawnhtta', password: 'Funga5UD3' };
+    const acc = { id: 1, username: 'johnkismetawjxr', password: 'FungadX1' };
     scanAccount(acc).then((r) => {
         console.log('Result:', r);
         process.exit(r.ok ? 0 : 1);

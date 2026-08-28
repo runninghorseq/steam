@@ -15,13 +15,23 @@ const accountCols = db.prepare('PRAGMA table_info(accounts)').all().map((c) => c
 if (!accountCols.includes('steam_points')) {
     db.exec('ALTER TABLE accounts ADD COLUMN steam_points INTEGER');
 }
+if (!accountCols.includes('loan_id')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN loan_id INTEGER');
+}
+if (!accountCols.includes('skip_wallet')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN skip_wallet INTEGER NOT NULL DEFAULT 0');
+}
+if (!accountCols.includes('source')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN source TEXT');
+}
 
 const upsertAccount = db.prepare(`
-INSERT INTO accounts (steam_id, account_name, persona, country, email, wallet_currency, wallet_balance_cents, steam_level, steam_points, scanned_at, created_at, updated_at)
-VALUES (@steam_id, @account_name, @persona, @country, @email, @wallet_currency, @wallet_balance_cents, @steam_level, @steam_points, @scanned_at, @now, @now)
+INSERT INTO accounts (steam_id, account_name, persona, country, email, wallet_currency, wallet_balance_cents, steam_level, steam_points, source, scanned_at, created_at, updated_at)
+VALUES (@steam_id, @account_name, @persona, @country, @email, @wallet_currency, @wallet_balance_cents, @steam_level, @steam_points, @source, @scanned_at, @now, @now)
 ON CONFLICT(steam_id) DO UPDATE SET
     account_name = COALESCE(excluded.account_name, accounts.account_name),
     persona = COALESCE(excluded.persona, accounts.persona),
+    source = COALESCE(excluded.source, accounts.source),
     country = COALESCE(excluded.country, accounts.country),
     email = COALESCE(excluded.email, accounts.email),
     wallet_currency = COALESCE(excluded.wallet_currency, accounts.wallet_currency),
@@ -100,8 +110,83 @@ function parseGiftedAt(sentAt) {
 
 const now = () => Math.floor(Date.now() / 1000);
 
+// One-time migration: sent_gifts.sent_at used to hold Steam's human string
+// ("7 Jun") in a TEXT column; it now holds a unix epoch in an INTEGER column.
+// Two steps, both idempotent and safe to run every startup:
+//   1. Parse any value that still has letters ("13 Aug") into an epoch integer.
+//   2. If the column is still TEXT-affinity, rebuild the table as INTEGER so
+//      values store as real integers (a TEXT-affinity column coerces every
+//      number to text, which is what we're fixing).
+{
+    const letterRows = db.prepare("SELECT gift_id, sent_at FROM sent_gifts WHERE sent_at IS NOT NULL AND sent_at GLOB '*[A-Za-z]*'").all();
+    if (letterRows.length) {
+        const upd = db.prepare('UPDATE sent_gifts SET sent_at = ? WHERE gift_id = ?');
+        db.transaction(() => { for (const r of letterRows) upd.run(parseGiftedAt(r.sent_at), r.gift_id); })();
+    }
+
+    const sentAtCol = db.prepare('PRAGMA table_info(sent_gifts)').all().find((c) => c.name === 'sent_at');
+    if (sentAtCol && /TEXT/i.test(sentAtCol.type)) {
+        db.transaction(() => db.exec(`
+            CREATE TABLE sent_gifts__new (
+                gift_id             TEXT PRIMARY KEY,
+                account_steam_id    TEXT,
+                recipient_steam_id  TEXT,
+                recipient_name      TEXT,
+                item_name           TEXT,
+                detail              TEXT,
+                sent_at             INTEGER,
+                status              TEXT,
+                store_url           TEXT,
+                scanned_at          INTEGER,
+                created_at          INTEGER NOT NULL DEFAULT (unixepoch()),
+                updated_at          INTEGER NOT NULL DEFAULT (unixepoch())
+            );
+            INSERT INTO sent_gifts__new
+                SELECT gift_id, account_steam_id, recipient_steam_id, recipient_name, item_name,
+                       detail, CAST(ROUND(sent_at) AS INTEGER), status, store_url, scanned_at,
+                       created_at, updated_at
+                FROM sent_gifts;
+            DROP TABLE sent_gifts;
+            ALTER TABLE sent_gifts__new RENAME TO sent_gifts;
+        `))();
+    }
+}
+
+// Accounts linked to a loan (accounts.loan_id) have been handed to someone else,
+// so their wallet balance and Steam level are whatever the borrower left behind.
+// Those three columns are frozen for them: every writer goes through saveAccount,
+// so blocking it here covers update_wallet_level.js, single.js, multi_scan.js and
+// anything added later, instead of relying on each caller to remember.
+const getAccountLoanID = db.prepare('SELECT loan_id FROM accounts WHERE steam_id = ?');
+const setAccountLoanID = db.prepare('UPDATE accounts SET loan_id = ?, updated_at = unixepoch() WHERE steam_id = ?');
+
+function isLoanedAccount(steamID) {
+    const row = getAccountLoanID.get(steamID);
+    return !!(row && row.loan_id != null);
+}
+
+// Link an account to a loan (or pass null to unlink it and unfreeze the columns).
+function setAccountLoan(steamID, loanID) {
+    return setAccountLoanID.run(loanID ?? null, steamID).changes;
+}
+
 function saveAccount(partial) {
     const ts = now();
+    // COALESCE in the upsert keeps the stored value when a field comes in as null,
+    // so nulling these is exactly "leave what is already there alone".
+    if (isLoanedAccount(partial.steam_id)) {
+        const frozen = ['wallet_currency', 'wallet_balance_cents', 'steam_level'].filter(
+            (k) => partial[k] != null
+        );
+        if (frozen.length) {
+            partial = { ...partial };
+            frozen.forEach((k) => { partial[k] = null; });
+            console.log(
+                `[db] ${partial.account_name || partial.steam_id}: loaned account — ` +
+                `not updating ${frozen.join(', ')}`
+            );
+        }
+    }
     upsertAccount.run({
         steam_id: partial.steam_id,
         account_name: partial.account_name ?? null,
@@ -112,9 +197,34 @@ function saveAccount(partial) {
         wallet_balance_cents: partial.wallet_balance_cents ?? null,
         steam_level: partial.steam_level ?? null,
         steam_points: partial.steam_points ?? null,
+        source: partial.source ?? null,
         scanned_at: ts,
         now: ts
     });
+}
+
+// Add an account WITHOUT scanning it: record only what a raw upload line carries
+// (steam_id, login name, email, source). Unlike saveAccount it does NOT set
+// scanned_at — the row is a stub until a real scan fills wallet/level/etc. All
+// fields COALESCE, so importing an already-known account never erases scan data.
+const upsertAccountStub = db.prepare(`
+INSERT INTO accounts (steam_id, account_name, email, source, created_at, updated_at)
+VALUES (@steam_id, @account_name, @email, @source, @now, @now)
+ON CONFLICT(steam_id) DO UPDATE SET
+    account_name = COALESCE(excluded.account_name, accounts.account_name),
+    email = COALESCE(excluded.email, accounts.email),
+    source = COALESCE(excluded.source, accounts.source),
+    updated_at = excluded.updated_at
+`);
+function addAccountStub({ steam_id, account_name, email, source }) {
+    const ts = now();
+    return upsertAccountStub.run({
+        steam_id,
+        account_name: account_name ?? null,
+        email: email ?? null,
+        source: source ?? null,
+        now: ts
+    }).changes;
 }
 
 const saveFriends = db.transaction((accountSteamID, friends) => {
@@ -223,7 +333,7 @@ const saveSentGifts = db.transaction((accountSteamID, gifts) => {
             recipient_name: g.recipient_name ?? null,
             item_name: g.item_name ?? null,
             detail: g.detail ?? null,
-            sent_at: g.sent_at ?? null,
+            sent_at: parseGiftedAt(g.sent_at),
             status: g.status ?? null,
             store_url: g.store_url ?? null,
             scanned_at: ts,
@@ -255,5 +365,6 @@ function clearRefreshToken(accountName) {
 
 module.exports = {
     db, saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts,
-    saveRefreshToken, getRefreshToken, clearRefreshToken
+    saveRefreshToken, getRefreshToken, clearRefreshToken,
+    isLoanedAccount, setAccountLoan, parseGiftedAt, addAccountStub
 };

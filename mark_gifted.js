@@ -22,7 +22,7 @@
 // CLI:
 //   node steam/mark_gifted.js                                 # sync today, tag=poe2ea
 //   node steam/mark_gifted.js --auto                          # sync today, auto-detect each recipient's pack
-//   node steam/mark_gifted.js --auto --date=20260712          # auto-detect for that day
+//   node steam/mark_gifted.js --auto --date=20260726          # auto-detect for that day
 //   node steam/mark_gifted.js --tag=cs2                       # sync today, tag=cs2
 //   node steam/mark_gifted.js --date=20260530                 # sync that day, tag=poe2ea
 //   node steam/mark_gifted.js mp753932                        # mark friend, tag=poe2ea, today
@@ -64,6 +64,10 @@ const DEFAULT_FILE = [
     '20260526_1k_outlook_2005.txtresult.txt',
     '20260606_1491_of_3k_outlook.txtresult.txt',
     '20251021_steam_A4EFUPVYPJ_35.txt',
+    '20260604_2650_outlook.txt.missing.txtresult.txt',
+    '20260504_steam_4k_outlook.txt',
+    '20260504_PTGO1774415483.txtresult.txt',
+    '20251201_accsteam_PXFC2BCSMK_80_leori.txt',
 ].map((name) => path.join(GIFT_DIR, name));
 const DEFAULT_TAG = 'poe2ea';
 
@@ -95,7 +99,10 @@ const TAG_ALIASES = {
     poe1cw: ['Path of Exile - Curator of Wisdom Supporter Pack'],
     poe1ii: ['Path of Exile - Iron Incarcerator Supporter Pack'],
     poe1pg: ['Path of Exile - Plague Supporter Pack'],
-    poe1rm: ['Path of Exile - Remidus Supporter Pack']
+    poe1rm: ['Path of Exile - Remidus Supporter Pack'],
+    isle: ['The Isle'],
+
+
 };
 
 // Tags whose gift record lives in sent_gifts.item_name rather than
