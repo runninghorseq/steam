@@ -435,6 +435,8 @@ function viewScan() {
 }
 
 let jobPoll = null;
+let loginPoll = null;
+const stopLoginPoll = () => { if (loginPoll) { clearInterval(loginPoll); loginPoll = null; } };
 
 async function renderJobList(container) {
     let jobsList;
@@ -495,6 +497,7 @@ async function openDetail(steamID) {
     const body = $('#detail-body');
     body.replaceChildren(el('div', { className: 'empty' }, 'Loading…'));
     if (!dlg.open) dlg.showModal();
+    stopLoginPoll();
     let d;
     try { d = await api(`/api/accounts/${steamID}`); }
     catch (err) { body.replaceChildren(el('div', { className: 'empty' }, err.message)); return; }
@@ -591,7 +594,65 @@ async function openDetail(steamID) {
         a.has_token ? '' : el('span', { className: 'tag notok' }, 'no token — needs a login')
     );
 
-    body.replaceChildren(runBar, runLog, kv, tabs, pane);
+    // Fetch/re-fetch a refresh token by logging in with the account password.
+    // Handles a Steam Guard prompt inline. The password is sent once and cleared.
+    const pw = el('input', { type: 'password', placeholder: 'account password', autocomplete: 'new-password', style: 'min-width:190px' });
+    const fetchBtn = el('button', { className: 'act' }, a.has_token ? 'Re-fetch token' : 'Fetch token');
+    const tokenStatus = el('span', { className: 'dim', style: 'font-size:12px' }, '');
+    const guardInput = el('input', { type: 'text', placeholder: 'Steam Guard code', autocomplete: 'off', style: 'width:150px; display:none' });
+    const guardBtn = el('button', { className: 'act', style: 'display:none' }, 'Submit code');
+    let currentSid = null;
+
+    const showGuard = (on) => { guardInput.style.display = on ? '' : 'none'; guardBtn.style.display = on ? '' : 'none'; };
+
+    const pollLogin = async (sid) => {
+        let st;
+        try { st = await api(`/api/accounts/login/${sid}`); }
+        catch (err) { stopLoginPoll(); tokenStatus.textContent = err.message; fetchBtn.disabled = false; return; }
+        if (st.status === 'need_guard') {
+            tokenStatus.textContent = `Steam Guard required (${st.guard_type}) — enter the code`;
+            showGuard(true); guardInput.focus();
+        } else if (st.status === 'done') {
+            stopLoginPoll(); showGuard(false);
+            tokenStatus.textContent = 'token cached \u2713';
+            toast(`${a.account_name}: token cached`);
+            openDetail(a.steam_id); // reopen — the "no token" tag is gone now
+        } else if (st.status === 'error') {
+            stopLoginPoll(); showGuard(false);
+            tokenStatus.textContent = `failed: ${st.reason || 'unknown'}`;
+            fetchBtn.disabled = false;
+        } else {
+            tokenStatus.textContent = st.status === 'logging_in' ? 'logging in\u2026' : 'starting\u2026';
+        }
+    };
+
+    fetchBtn.onclick = async () => {
+        if (!pw.value) { toast('Enter the password first', true); return; }
+        fetchBtn.disabled = true; showGuard(false); tokenStatus.textContent = 'starting\u2026';
+        try {
+            const r = await api(`/api/accounts/${a.steam_id}/login`, { method: 'POST', body: JSON.stringify({ password: pw.value }) });
+            pw.value = ''; // don't keep the password in the DOM
+            currentSid = r.session_id;
+            stopLoginPoll();
+            loginPoll = setInterval(() => pollLogin(currentSid), 1500);
+            pollLogin(currentSid);
+        } catch (err) { tokenStatus.textContent = ''; toast(err.message, true); fetchBtn.disabled = false; }
+    };
+    guardBtn.onclick = async () => {
+        if (!guardInput.value || !currentSid) return;
+        guardBtn.disabled = true;
+        try {
+            await api(`/api/accounts/login/${currentSid}/guard`, { method: 'POST', body: JSON.stringify({ code: guardInput.value }) });
+            guardInput.value = ''; showGuard(false); tokenStatus.textContent = 'submitting code\u2026';
+        } catch (err) { toast(err.message, true); }
+        guardBtn.disabled = false;
+    };
+
+    const tokenBar = el('div', { className: 'toolbar', style: 'margin-bottom:14px; flex-wrap:wrap' },
+        el('span', { className: 'dim', style: 'font-size:12px' }, 'Token:'),
+        pw, fetchBtn, guardInput, guardBtn, tokenStatus);
+
+    body.replaceChildren(runBar, tokenBar, runLog, kv, tabs, pane);
 }
 
 // --- loading ----------------------------------------------------------------
@@ -643,6 +704,6 @@ document.querySelectorAll('nav button').forEach((b) => {
     };
 });
 $('#refresh').onclick = load;
-$('#detail-close').onclick = () => $('#detail').close();
+$('#detail-close').onclick = () => { stopLoginPoll(); $('#detail').close(); };
 
 load();

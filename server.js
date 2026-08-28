@@ -19,7 +19,8 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { db, setAccountLoan, addAccountStub } = require('./db');
+const SteamUser = require('steam-user');
+const { db, setAccountLoan, addAccountStub, saveRefreshToken } = require('./db');
 const { scanAccount } = require('./single');
 const { parseSteamAccounts } = require('./multi_scan');
 const { syncAccount } = require('./sync_sent_gifts');
@@ -38,6 +39,69 @@ const MAX_LINES = 4000;
 // open two bursts of logins into Steam's rate limiter at once.
 let steamBusy = false;
 const steamQueue = [];
+
+// Interactive password logins to (re)cache a refresh token. Each holds a live
+// SteamUser between HTTP calls so a Steam Guard code can be supplied mid-login.
+// Passwords are used to log in and then dropped — never stored or logged.
+const loginSessions = new Map();
+const LOGIN_TTL_MS = 5 * 60 * 1000;
+
+function sweepLoginSessions() {
+    const cutoff = Date.now() - LOGIN_TTL_MS;
+    for (const [sid, sess] of loginSessions) {
+        const terminal = sess.status === 'done' || sess.status === 'error';
+        if (sess.created_at < cutoff || (terminal && sess.finished_at && sess.finished_at < Date.now() - 60000)) {
+            try { sess.client.logOff(); } catch (_) {}
+            loginSessions.delete(sid);
+        }
+    }
+}
+
+function startLogin(steamID, accountName, password) {
+    sweepLoginSessions();
+    const sid = crypto.randomBytes(8).toString('hex');
+    const client = new SteamUser({ renewRefreshTokens: true });
+    const sess = {
+        sid, client, account_name: accountName, steam_id: steamID,
+        status: 'pending', reason: null, guard_type: null, guard_cb: null,
+        created_at: Date.now(), finished_at: null
+    };
+    loginSessions.set(sid, sess);
+
+    const finish = (status, reason) => {
+        if (sess.status === 'done' || sess.status === 'error') return;
+        sess.status = status;
+        sess.reason = reason || null;
+        sess.finished_at = Date.now();
+        sess.guard_cb = null;
+        try { client.logOff(); } catch (_) {}
+    };
+
+    const timer = setTimeout(() => finish('error', 'timed out'), LOGIN_TTL_MS);
+    sess._timer = timer;
+
+    client.on('steamGuard', (domain, callback) => {
+        sess.guard_type = domain ? `email (${domain})` : 'mobile authenticator';
+        sess.guard_cb = callback;
+        sess.status = 'need_guard';
+    });
+    // A successful credential login yields a refresh token — the whole point here.
+    client.on('refreshToken', (token) => {
+        saveRefreshToken(accountName, token);
+        clearTimeout(timer);
+        finish('done');
+    });
+    client.on('loggedOn', () => {
+        if (sess.status === 'pending' || sess.status === 'need_guard') sess.status = 'logging_in';
+    });
+    client.on('error', (err) => {
+        clearTimeout(timer);
+        finish('error', err.message);
+    });
+
+    client.logOn({ accountName, password });
+    return sess;
+}
 
 function makeJob(type, meta) {
     const id = crypto.randomBytes(6).toString('hex');
@@ -434,6 +498,40 @@ async function handleAPI(req, res, url) {
     if (method === 'GET' && m) {
         const detail = accountDetail(m[1]);
         return detail ? sendJSON(res, 200, detail) : sendJSON(res, 404, { error: 'account not found' });
+    }
+
+    // Start a password login to (re)cache a refresh token for one account.
+    m = /^\/api\/accounts\/(\d{17})\/login$/.exec(p);
+    if (method === 'POST' && m) {
+        const b = await readBody(req);
+        if (!b.password) return sendJSON(res, 400, { error: 'password required' });
+        const acc = db.prepare('SELECT account_name FROM accounts WHERE steam_id = ?').get(m[1]);
+        if (!acc || !acc.account_name) return sendJSON(res, 400, { error: 'account not found, or has no login name' });
+        const sess = startLogin(m[1], acc.account_name, String(b.password));
+        return sendJSON(res, 202, { session_id: sess.sid, status: sess.status, account_name: acc.account_name });
+    }
+
+    // Poll a login session's status.
+    m = /^\/api\/accounts\/login\/([0-9a-f]{16})$/.exec(p);
+    if (method === 'GET' && m) {
+        const sess = loginSessions.get(m[1]);
+        if (!sess) return sendJSON(res, 404, { error: 'no such login session (it may have expired)' });
+        return sendJSON(res, 200, { status: sess.status, guard_type: sess.guard_type, reason: sess.reason, account_name: sess.account_name });
+    }
+
+    // Supply a Steam Guard code to a waiting login session.
+    m = /^\/api\/accounts\/login\/([0-9a-f]{16})\/guard$/.exec(p);
+    if (method === 'POST' && m) {
+        const sess = loginSessions.get(m[1]);
+        if (!sess) return sendJSON(res, 404, { error: 'no such login session' });
+        const b = await readBody(req);
+        if (sess.status !== 'need_guard' || !sess.guard_cb) return sendJSON(res, 409, { error: `not awaiting a code (status: ${sess.status})` });
+        if (!b.code) return sendJSON(res, 400, { error: 'code required' });
+        const cb = sess.guard_cb;
+        sess.guard_cb = null;
+        sess.status = 'logging_in';
+        cb(String(b.code).trim());
+        return sendJSON(res, 200, { status: sess.status });
     }
 
     m = /^\/api\/accounts\/(\d{17})\/run$/.exec(p);
