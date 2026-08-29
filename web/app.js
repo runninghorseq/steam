@@ -676,6 +676,7 @@ async function openDetail(steamID) {
         el('span', { className: 'dim', style: 'font-size:12px' }, 'Run on this account:'),
         mkRun('Scan', 'scan'),
         mkRun('Wallet + Level', 'wallet'),
+        mkRun('Sync friends', 'friends'),
         mkRun('Sync sent gifts', 'sync'),
         a.has_token ? '' : el('span', { className: 'tag notok' }, 'no token — needs a login')
     );
@@ -791,6 +792,12 @@ document.querySelectorAll('nav button').forEach((b) => {
     };
 });
 $('#refresh').onclick = load;
-$('#detail-close').onclick = () => { stopLoginPoll(); $('#detail').close(); };
+// Close the detail dialog via the button, Escape, or a click on the backdrop
+// (a click whose target is the <dialog> itself, i.e. outside the content box).
+// The 'close' event centralizes cleanup so every path stops the login poll.
+const detailDlg = $('#detail');
+detailDlg.addEventListener('close', () => stopLoginPoll());
+detailDlg.addEventListener('click', (e) => { if (e.target === detailDlg) detailDlg.close(); });
+$('#detail-close').onclick = () => detailDlg.close();
 
 load();

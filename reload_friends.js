@@ -54,17 +54,34 @@ async function fetchPersonas(steamIDs) {
     return names;
 }
 
-(async () => {
+// Reload one account's friends from the Web API into the DB. Resolves with
+// { ok, total, added } (never rejects here — the caller decides). Reused by the
+// dashboard's per-account "Sync friends" action and the CLI below.
+const existingFriendIDs = db.prepare('SELECT friend_steam_id FROM friends WHERE account_steam_id = ?');
+
+async function reloadFriends(steamID, { log = () => {} } = {}) {
+    const apiFriends = await fetchFriends(steamID);
+    const ids = apiFriends.map((f) => f.steamid);
+    const personas = await fetchPersonas(ids);
+    const known = new Set(existingFriendIDs.all(steamID).map((r) => r.friend_steam_id));
+    const added = ids.filter((id) => !known.has(id)).length;
+    const dbFriends = apiFriends.map((f) => ({
+        steam_id: f.steamid,
+        name: personas[f.steamid] ?? null,
+        added_at: f.friend_since || null
+    }));
+    saveFriends(steamID, dbFriends);
+    log(`${dbFriends.length} friends (${added} new)`);
+    return { ok: true, total: dbFriends.length, added };
+}
+
+async function runCli() {
     const argIDs = process.argv.slice(2).filter((a) => /^\d{17}$/.test(a));
     const accounts = argIDs.length
         ? argIDs.map((id) => ({ steam_id: id, account_name: null }))
         : db.prepare('SELECT steam_id, account_name FROM accounts ORDER BY account_name').all();
 
     console.log(`=== Reloading friends for ${accounts.length} account(s) ===\n`);
-
-    const existingForAccount = db.prepare(
-        'SELECT friend_steam_id FROM friends WHERE account_steam_id = ?'
-    );
 
     let grandNew = 0;
     let grandTotal = 0;
@@ -73,23 +90,10 @@ async function fetchPersonas(steamIDs) {
     for (const acc of accounts) {
         const label = acc.account_name ? `${acc.account_name} (${acc.steam_id})` : acc.steam_id;
         try {
-            const apiFriends = await fetchFriends(acc.steam_id);
-            const ids = apiFriends.map((f) => f.steamid);
-            const personas = await fetchPersonas(ids);
-
-            const known = new Set(existingForAccount.all(acc.steam_id).map((r) => r.friend_steam_id));
-            const newCount = ids.filter((id) => !known.has(id)).length;
-
-            const dbFriends = apiFriends.map((f) => ({
-                steam_id: f.steamid,
-                name: personas[f.steamid] ?? null,
-                added_at: f.friend_since || null
-            }));
-            saveFriends(acc.steam_id, dbFriends);
-
-            grandNew += newCount;
-            grandTotal += dbFriends.length;
-            console.log(`[${label}] ${dbFriends.length} friends (${newCount} new)`);
+            const { total, added } = await reloadFriends(acc.steam_id);
+            grandNew += added;
+            grandTotal += total;
+            console.log(`[${label}] ${total} friends (${added} new)`);
         } catch (err) {
             errors.push({ label, msg: err.message });
             console.log(`[${label}] ERROR - ${err.message}`);
@@ -104,4 +108,8 @@ async function fetchPersonas(steamIDs) {
         console.log(`Errors (${errors.length}):`);
         errors.forEach((e) => console.log(`  - ${e.label}: ${e.msg}`));
     }
-})();
+}
+
+if (require.main === module) runCli();
+
+module.exports = { reloadFriends };

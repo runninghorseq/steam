@@ -25,6 +25,7 @@ const { scanAccount } = require('./single');
 const { parseSteamAccounts } = require('./multi_scan');
 const { syncAccount } = require('./sync_sent_gifts');
 const { updateWalletLevel } = require('./update_wallet_level');
+const { reloadFriends } = require('./reload_friends');
 const gift = require('./gift_api');
 const { removeAccount } = require('./remove_account');
 
@@ -217,6 +218,7 @@ async function runSingleAccountJob(job, account, action, opts) {
         if (action === 'scan') res = await scanAccount(account, { timeout: opts.timeout, log });
         else if (action === 'wallet') res = await updateWalletLevel(account, { timeout: opts.timeout, log, mode: opts.mode || 'all' });
         else if (action === 'sync') res = await syncAccount(account, { timeout: opts.timeout, log });
+        else if (action === 'friends') res = await reloadFriends(account.steam_id, { log });
         else res = { ok: false, reason: `unknown action '${action}'` };
     } catch (err) {
         res = { ok: false, reason: err.message };
@@ -537,8 +539,8 @@ async function handleAPI(req, res, url) {
     m = /^\/api\/accounts\/(\d{17})\/run$/.exec(p);
     if (method === 'POST' && m) {
         const { action, mode, timeout } = await readBody(req);
-        if (!['scan', 'wallet', 'sync'].includes(action)) {
-            return sendJSON(res, 400, { error: "action must be one of: scan, wallet, sync" });
+        if (!['scan', 'wallet', 'sync', 'friends'].includes(action)) {
+            return sendJSON(res, 400, { error: "action must be one of: scan, wallet, sync, friends" });
         }
         const acc = db.prepare('SELECT account_name FROM accounts WHERE steam_id = ?').get(m[1]);
         if (!acc || !acc.account_name) {
@@ -546,7 +548,7 @@ async function handleAPI(req, res, url) {
         }
         const to = Number(timeout) >= 10000 ? Number(timeout) : (action === 'sync' ? 120000 : 60000);
         const job = makeJob(action, { total: 1, usernames: [acc.account_name] });
-        enqueueSteamJob(job, () => runSingleAccountJob(job, { username: acc.account_name }, action, { timeout: to, mode }));
+        enqueueSteamJob(job, () => runSingleAccountJob(job, { username: acc.account_name, steam_id: m[1] }, action, { timeout: to, mode }));
         return sendJSON(res, 202, jobView(job, false));
     }
 
