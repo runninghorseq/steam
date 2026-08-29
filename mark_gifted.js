@@ -45,7 +45,7 @@ const { db } = require('./db');
 // Single-friend mode still uses the LOCAL db (it's a manual override).
 const API_BASE = (process.env.STEAM_API_BASE || 'https://steam.fungamingvn.space').replace(/\/+$/, '');
 // const API_TOKEN = process.env.STEAM_API_TOKEN || process.env.DASHBOARD_TOKEN || '';
-const API_TOKEN = 'fungaming'
+const API_TOKEN = '89d1146bef759c827dfae6ebd840e1d4'
 
 async function fetchGifted(dayStart, dayEnd) {
     const headers = {

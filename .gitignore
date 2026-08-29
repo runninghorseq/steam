@@ -3,3 +3,7 @@ node_modules/
 *.txt
 *.logs
 *.db
+*.db-shm
+*.db-wal
+backups/
+.DS_Store
