@@ -490,6 +490,92 @@ function watchJob(id, panel, onDone) {
     jobPoll = setInterval(tick, 1500);
 }
 
+// --- feedback / reviews -----------------------------------------------------
+
+// A row of 5 stars. readonly => display only; otherwise clickable, calling
+// onPick(n). `get`/`set` share the current value via a small holder object.
+function starRow(value, { readonly = false, onPick = null } = {}) {
+    const row = el('div', { className: 'stars' + (readonly ? ' readonly' : '') });
+    const paint = (v) => [...row.children].forEach((st, i) => st.classList.toggle('on', i < v));
+    for (let i = 1; i <= 5; i++) {
+        const st = el('span', { className: 'star', title: `${i} star${i > 1 ? 's' : ''}` }, '\u2605');
+        if (!readonly) {
+            st.onmouseenter = () => paint(i);
+            st.onclick = () => { row.dataset.value = i; paint(i); onPick && onPick(i); };
+        }
+        row.append(st);
+    }
+    if (!readonly) row.onmouseleave = () => paint(Number(row.dataset.value) || 0);
+    row.dataset.value = value || 0;
+    paint(value || 0);
+    return row;
+}
+
+function viewFeedback() {
+    const wrap = el('div');
+
+    // --- submit form ---
+    let picked = 0;
+    const starPick = starRow(0, { onPick: (n) => { picked = n; ratingHint.textContent = `${n}/5`; } });
+    const ratingHint = el('span', { className: 'dim', style: 'font-size:13px; margin-left:8px' }, 'pick a rating');
+    const comment = el('textarea', { placeholder: 'Leave a review (optional)…', rows: 4,
+        style: 'width:100%; padding:9px; background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px; resize:vertical; font:inherit' });
+    const author = el('input', { type: 'text', placeholder: 'your name (optional)', style: 'width:100%; padding:7px 9px; background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px' });
+    const submit = el('button', { className: 'act primary', style: 'margin-top:12px' }, 'Submit review');
+
+    submit.onclick = async () => {
+        if (!picked) { toast('Pick a star rating first', true); return; }
+        submit.disabled = true;
+        try {
+            await api('/api/feedback', { method: 'POST', body: JSON.stringify({ rating: picked, comment: comment.value, author: author.value }) });
+            toast('Thanks for the review!');
+            load(); // re-render with the new review + updated average
+        } catch (err) { toast(err.message, true); submit.disabled = false; }
+    };
+
+    const form = el('div', { className: 'fb-form' },
+        el('div', { style: 'font-weight:600; margin-bottom:6px' }, 'Leave a review'),
+        el('div', { style: 'display:flex; align-items:center' }, starPick, ratingHint),
+        el('label', {}, 'Review'), comment,
+        el('label', {}, 'Name'), author,
+        submit);
+    wrap.append(form);
+
+    // --- summary + list (fetched fresh) ---
+    const listWrap = el('div');
+    wrap.append(listWrap);
+    (async () => {
+        let data;
+        try { data = await api('/api/feedback'); }
+        catch (err) { listWrap.replaceChildren(el('div', { className: 'empty' }, err.message)); return; }
+        const avg = data.average ? data.average.toFixed(1) : '—';
+        const summary = el('div', { className: 'fb-summary' },
+            el('span', { className: 'big' }, avg),
+            starRow(Math.round(data.average || 0), { readonly: true }),
+            el('span', { className: 'dim' }, `${data.count} review${data.count === 1 ? '' : 's'}`));
+        const bars = el('div', { style: 'margin-bottom:18px' });
+        for (let r = 5; r >= 1; r--) {
+            const c = (data.distribution && data.distribution[r]) || 0;
+            const pct = data.count ? Math.round((c / data.count) * 100) : 0;
+            bars.append(el('div', { className: 'fb-bar' },
+                el('span', { style: 'width:12px' }, String(r)), '\u2605',
+                el('span', { className: 'track' }, el('div', { className: 'fill', style: `width:${pct}%` })),
+                el('span', {}, String(c))));
+        }
+        const reviews = data.reviews.length
+            ? data.reviews.map((rv) => el('div', { className: 'review' },
+                el('div', { className: 'head' },
+                    starRow(rv.rating, { readonly: true }),
+                    el('span', { className: 'who' }, rv.author || 'Anonymous'),
+                    el('span', { className: 'when' }, dateTime(rv.created_at))),
+                rv.comment ? el('div', { className: 'body' }, rv.comment) : ''))
+            : [el('div', { className: 'empty' }, 'No reviews yet — be the first.')];
+        listWrap.replaceChildren(summary, bars, el('div', { style: 'font-weight:600; margin-bottom:8px' }, 'Reviews'), ...reviews);
+    })();
+
+    return [wrap];
+}
+
 // --- detail dialog ----------------------------------------------------------
 
 async function openDetail(steamID) {
@@ -664,9 +750,10 @@ const ENDPOINTS = {
     sent: () => '/api/gifts/sent',
     pending: () => '/api/gifts/pending',
     friends: () => `/api/friends?q=${encodeURIComponent(state.q)}`,
-    scan: null
+    scan: null,
+    feedback: null
 };
-const VIEWS = { accounts: viewAccounts, loans: viewLoans, sent: viewSent, pending: viewPending, friends: viewFriends, scan: viewScan };
+const VIEWS = { accounts: viewAccounts, loans: viewLoans, sent: viewSent, pending: viewPending, friends: viewFriends, scan: viewScan, feedback: viewFeedback };
 
 async function load() {
     try {

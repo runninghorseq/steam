@@ -37,6 +37,33 @@
 const fs = require('fs');
 const path = require('path');
 const { db } = require('./db');
+
+// The dashboard API owns the gift records now (steam_profile_login.py writes
+// there). Auto/sync modes read the day's gifted recipients from it instead of
+// the local DB, so this stays consistent with wherever the bot recorded them.
+// Override with STEAM_API_BASE; token via STEAM_API_TOKEN / DASHBOARD_TOKEN.
+// Single-friend mode still uses the LOCAL db (it's a manual override).
+const API_BASE = (process.env.STEAM_API_BASE || 'https://steam.fungamingvn.space').replace(/\/+$/, '');
+const API_TOKEN = process.env.STEAM_API_TOKEN || process.env.DASHBOARD_TOKEN || '';
+
+async function fetchGifted(dayStart, dayEnd) {
+    const headers = {
+        // Cloudflare fronts the domain and blocks non-browser signatures.
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+        'Accept': 'application/json',
+    };
+    if (API_TOKEN) headers['X-Dashboard-Token'] = API_TOKEN;
+    let resp;
+    try {
+        resp = await fetch(`${API_BASE}/api/gifted?start=${dayStart}&end=${dayEnd}`, { headers });
+    } catch (e) {
+        throw new Error(`API unreachable at ${API_BASE} (${e.message})`);
+    }
+    if (resp.status === 401) throw new Error('API 401 unauthorized — set STEAM_API_TOKEN to match the server DASHBOARD_TOKEN');
+    if (!resp.ok) throw new Error(`API /api/gifted -> HTTP ${resp.status}`);
+    return resp.json(); // { sent: [{friend_name, game}], gifted: [{friend_name, game}] }
+}
+
 const GIFT_DIR = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam';
 const DEFAULT_FILE = [
     '20251117_accsteam_57KIJUKFJD_85_pearl.txt',
@@ -176,66 +203,6 @@ UPDATE friends
 SET gifted_at = ?, gifted_game = ?, updated_at = unixepoch()
 WHERE account_steam_id = ? AND friend_steam_id = ?
 `);
-function findGiftedInRange(dayStart, dayEnd, gameNames) {
-    if (gameNames.length === 0) return [];
-    const placeholders = gameNames.map(() => '?').join(', ');
-    return db
-        .prepare(`
-            SELECT DISTINCT friend_name
-            FROM friends
-            WHERE gifted_at >= ? AND gifted_at < ?
-              AND gifted_game IN (${placeholders})
-              AND friend_name IS NOT NULL AND trim(friend_name) <> ''
-            ORDER BY friend_name
-        `)
-        .all(dayStart, dayEnd, ...gameNames);
-}
-
-// Like findGiftedInRange, but sourced from sent_gifts (for SENT_GIFTS_TAGS tags).
-// Filters by created_at (when the row was recorded — i.e. when the bot sent the
-// gift) and excludes FAILED rows, which represent attempts where no gift was sent.
-function findSentGiftedInRange(dayStart, dayEnd, itemNames) {
-    if (itemNames.length === 0) return [];
-    const placeholders = itemNames.map(() => '?').join(', ');
-    return db
-        .prepare(`
-            SELECT DISTINCT recipient_name AS friend_name
-            FROM sent_gifts
-            WHERE created_at >= ? AND created_at < ?
-              AND item_name IN (${placeholders})
-              AND (status IS NULL OR status NOT LIKE 'FAILED%')
-              AND recipient_name IS NOT NULL AND trim(recipient_name) <> ''
-            ORDER BY recipient_name
-        `)
-        .all(dayStart, dayEnd, ...itemNames);
-}
-
-// Auto mode: every recipient gifted on the day, tagged by the item they got.
-// From sent_gifts (recorded by the gifting bot), keyed on created_at, FAILED
-// rows excluded.
-function findAllSentInRange(dayStart, dayEnd) {
-    return db
-        .prepare(`
-            SELECT DISTINCT recipient_name AS friend_name, item_name AS game
-            FROM sent_gifts
-            WHERE created_at >= ? AND created_at < ?
-              AND (status IS NULL OR status NOT LIKE 'FAILED%')
-              AND recipient_name IS NOT NULL AND trim(recipient_name) <> ''
-        `)
-        .all(dayStart, dayEnd);
-}
-// ...and from friends.gifted_game (game1-style gifts), keyed on gifted_at.
-function findAllGiftedInRange(dayStart, dayEnd) {
-    return db
-        .prepare(`
-            SELECT DISTINCT friend_name, gifted_game AS game
-            FROM friends
-            WHERE gifted_at >= ? AND gifted_at < ?
-              AND friend_name IS NOT NULL AND trim(friend_name) <> ''
-        `)
-        .all(dayStart, dayEnd);
-}
-
 function updateDB({ friend, tag, ts }) {
     const bySteamID = STEAMID64_RE.test(String(friend));
     const rows = bySteamID ? findBySteamID.all(String(friend)) : findByName.all(friend);
@@ -347,15 +314,18 @@ function markGifted({ friend, tag = DEFAULT_TAG, date, file } = {}) {
     return { ts, stamp, tag, db: dbRes, files, fileKeys: [...keys] };
 }
 
-function syncFromDB({ tag = DEFAULT_TAG, date, file } = {}) {
+async function syncFromDB({ tag = DEFAULT_TAG, date, file } = {}) {
     const ts = date ? parseDate(date) : nowEpoch();
     const stamp = fmtDate(ts);
     const [dayStart, dayEnd] = localDayRange(ts);
     const gameNames = gameNamesForTag(tag);
-    const friendNames = (isSentGiftsTag(tag)
-        ? findSentGiftedInRange(dayStart, dayEnd, gameNames)
-        : findGiftedInRange(dayStart, dayEnd, gameNames)
-    ).map((r) => r.friend_name);
+    const lowerNames = new Set(gameNames.map((n) => (n || '').toLowerCase()));
+    const { sent, gifted } = await fetchGifted(dayStart, dayEnd);
+    const src = isSentGiftsTag(tag) ? sent : gifted;
+    const friendNames = [...new Set(
+        src.filter((r) => lowerNames.has((r.game || '').toLowerCase()))
+           .map((r) => r.friend_name).filter(Boolean)
+    )];
 
     const files = resolveFiles(file).map((filePath) => {
         const fileExists = fs.existsSync(filePath);
@@ -382,7 +352,7 @@ function syncFromDB({ tag = DEFAULT_TAG, date, file } = {}) {
 // Auto-detect mode: for the given day, mark every recipient with the tag of the
 // item they actually received (from sent_gifts AND friends.gifted_game), so one
 // run back-fills all packs without specifying --tag. Unmapped items are skipped.
-function syncAuto({ date, file } = {}) {
+async function syncAuto({ date, file } = {}) {
     const ts = date ? parseDate(date) : nowEpoch();
     const stamp = fmtDate(ts);
     const [dayStart, dayEnd] = localDayRange(ts);
@@ -394,8 +364,9 @@ function syncAuto({ date, file } = {}) {
         if (tag) detected.push({ friend: r.friend_name, tag });
         else if (r.game && r.game.trim()) unknown.add(r.game);
     });
-    add(findAllSentInRange(dayStart, dayEnd));
-    add(findAllGiftedInRange(dayStart, dayEnd));
+    const { sent, gifted } = await fetchGifted(dayStart, dayEnd);
+    add(sent);
+    add(gifted);
 
     // Dedup (friend, tag).
     const seen = new Set();
@@ -441,7 +412,7 @@ function parseArgs(argv) {
     return out;
 }
 
-function runCli() {
+async function runCli() {
     let args;
     try {
         args = parseArgs(process.argv.slice(2));
@@ -455,7 +426,7 @@ function runCli() {
 
     try {
         if (!friendPos && (args.auto || tag === 'auto')) {
-            const res = syncAuto({ date, file: args.file });
+            const res = await syncAuto({ date, file: args.file });
             console.log(`Auto sync: day=${fmtDate(res.dayStart)} (local)`);
             const byTag = {};
             res.pairs.forEach((p) => { (byTag[p.tag] = byTag[p.tag] || new Set()).add(p.friend); });
@@ -477,7 +448,7 @@ function runCli() {
             return;
         }
         if (!friendPos) {
-            const res = syncFromDB({ tag, date, file: args.file });
+            const res = await syncFromDB({ tag, date, file: args.file });
             const dayLabel = `${fmtDate(res.dayStart)} (local)`;
             console.log(`Sync mode: tag='${res.tag}' day=${dayLabel}`);
             console.log(`  ${res.friendNames.length} distinct friend(s) gifted in DB`);
@@ -526,6 +497,6 @@ function runCli() {
     }
 }
 
-if (require.main === module) runCli();
+if (require.main === module) runCli().catch((err) => { console.error(`Error: ${err.message}`); process.exit(1); });
 
 module.exports = { markGifted, syncFromDB, syncAuto };

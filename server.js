@@ -826,6 +826,52 @@ async function handleAPI(req, res, url) {
         }));
     }
 
+    // --- gifted recipients for a day range (used by mark_gifted.js --auto) ----
+    if (method === 'GET' && p === '/api/gifted') {
+        const start = Number(url.searchParams.get('start'));
+        const end = Number(url.searchParams.get('end'));
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+            return sendJSON(res, 400, { error: 'start and end (unix epoch seconds) required, end > start' });
+        }
+        // Mirrors mark_gifted.js's findAllSentInRange + findAllGiftedInRange.
+        const sent = db.prepare(`
+            SELECT DISTINCT recipient_name AS friend_name, item_name AS game
+            FROM sent_gifts
+            WHERE created_at >= ? AND created_at < ?
+              AND (status IS NULL OR status NOT LIKE 'FAILED%')
+              AND recipient_name IS NOT NULL AND trim(recipient_name) <> ''
+        `).all(start, end);
+        const gifted = db.prepare(`
+            SELECT DISTINCT friend_name, gifted_game AS game
+            FROM friends
+            WHERE gifted_at >= ? AND gifted_at < ?
+              AND friend_name IS NOT NULL AND trim(friend_name) <> ''
+        `).all(start, end);
+        return sendJSON(res, 200, { sent, gifted });
+    }
+
+    // --- feedback / star reviews ---------------------------------------------
+    if (method === 'GET' && p === '/api/feedback') {
+        const rows = db.prepare('SELECT id, rating, comment, author, created_at FROM feedback ORDER BY created_at DESC, id DESC LIMIT 500').all();
+        const agg = db.prepare('SELECT COUNT(*) n, AVG(rating) avg FROM feedback').get();
+        const dist = {};
+        for (let i = 1; i <= 5; i++) dist[i] = 0;
+        db.prepare('SELECT rating, COUNT(*) c FROM feedback GROUP BY rating').all().forEach((r) => { dist[r.rating] = r.c; });
+        return sendJSON(res, 200, { reviews: rows, count: agg.n, average: agg.avg, distribution: dist });
+    }
+
+    if (method === 'POST' && p === '/api/feedback') {
+        const b = await readBody(req);
+        const rating = Number(b.rating);
+        if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+            return sendJSON(res, 400, { error: 'rating must be an integer from 1 to 5' });
+        }
+        const comment = b.comment ? String(b.comment).slice(0, 4000).trim() || null : null;
+        const author = b.author ? String(b.author).slice(0, 120).trim() || null : null;
+        const info = db.prepare('INSERT INTO feedback (rating, comment, author) VALUES (?, ?, ?)').run(rating, comment, author);
+        return sendJSON(res, 201, db.prepare('SELECT id, rating, comment, author, created_at FROM feedback WHERE id = ?').get(info.lastInsertRowid));
+    }
+
     return sendJSON(res, 404, { error: `no route for ${method} ${p}` });
 }
 

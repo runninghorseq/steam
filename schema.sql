@@ -156,6 +156,17 @@ CREATE TABLE IF NOT EXISTS account_loans (
 );
 
 -- ----------------------------------------------------------------------------
+-- feedback: 1-5 star reviews left through the dashboard's Feedback form.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS feedback (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    rating      INTEGER NOT NULL,   -- 1..5 stars
+    comment     TEXT,               -- optional free text
+    author      TEXT,               -- optional name/handle
+    created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+);
+
+-- ----------------------------------------------------------------------------
 -- auth_tokens: per-account Steam refresh tokens (avoids re-prompting 2FA)
 --   Long-lived JWTs (~200 days). Cleared automatically on auth errors.
 -- ----------------------------------------------------------------------------
