@@ -241,6 +241,36 @@ async function runSingleAccountJob(job, account, action, opts) {
     jobLog(job, 'Done.');
 }
 
+// Refresh wallet/level across many accounts, reusing updateWalletLevel. Runs a
+// few logins in parallel (like the CLI), but the whole batch is one queued job.
+async function runWalletJob(job, accounts, { mode, timeout, concurrency }) {
+    job.status = 'running';
+    job.started_at = now();
+    jobLog(job, `Refreshing wallet/level for ${accounts.length} account(s), mode ${mode}, concurrency ${concurrency}.`);
+    let cursor = 0;
+    const worker = async () => {
+        while (cursor < accounts.length) {
+            const i = cursor++;
+            const acc = accounts[i];
+            jobLog(job, `>> [${i + 1}/${accounts.length}] ${acc.username}`);
+            let res;
+            try {
+                res = await updateWalletLevel(acc, { timeout, mode, log: (...a) => jobLog(job, a.join(' ')) });
+            } catch (err) {
+                res = { ok: false, username: acc.username, reason: err.message };
+            }
+            job.done++;
+            if (res?.ok) { job.ok++; jobLog(job, `   OK ${acc.username}`); }
+            else { job.failed++; jobLog(job, `   FAIL ${acc.username}: ${res?.reason || 'unknown'}`); }
+            job.results.push({ username: acc.username, ok: !!res?.ok, reason: res?.reason || null });
+        }
+    };
+    await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
+    job.status = 'done';
+    job.finished_at = now();
+    jobLog(job, `Done: ${job.ok}/${job.total} ok, ${job.failed} failed.`);
+}
+
 // Queue any Steam-login job (scan or sync) so only one runs at a time.
 function enqueueSteamJob(job, run) {
     const start = async () => {
@@ -500,6 +530,38 @@ async function handleAPI(req, res, url) {
     if (method === 'GET' && m) {
         const detail = accountDetail(m[1]);
         return detail ? sendJSON(res, 200, detail) : sendJSON(res, 404, { error: 'account not found' });
+    }
+
+    // Bulk-refresh wallet/level for all tokened accounts, minus skip_wallet + loaned.
+    if (method === 'POST' && p === '/api/wallets/refresh') {
+        const b = await readBody(req);
+        const mode = ['all', 'wallet', 'gifts'].includes(b.mode) ? b.mode : 'all';
+        const includeSkipped = !!b.includeSkipped;
+        const includeLent = !!b.includeLent;
+        const concurrency = Number(b.concurrency) >= 1 ? Math.min(Number(b.concurrency), 8) : 5;
+
+        // Same selection as the update_wallet_level.js CLI default.
+        let accounts = db.prepare('SELECT account_name AS username FROM auth_tokens ORDER BY account_name').all();
+        let droppedSkip = [];
+        if (!includeSkipped && (mode === 'all' || mode === 'wallet')) {
+            const skip = new Set(db.prepare("SELECT account_name FROM accounts WHERE skip_wallet = 1 AND account_name IS NOT NULL").all().map((r) => r.account_name.toLowerCase()));
+            droppedSkip = accounts.filter((a) => skip.has(a.username.toLowerCase())).map((a) => a.username);
+            accounts = accounts.filter((a) => !skip.has(a.username.toLowerCase()));
+        }
+        let droppedLent = [];
+        if (!includeLent) {
+            const lent = new Set(db.prepare("SELECT account_name FROM accounts WHERE loan_id IS NOT NULL AND account_name IS NOT NULL").all().map((r) => r.account_name.toLowerCase()));
+            droppedLent = accounts.filter((a) => lent.has(a.username.toLowerCase())).map((a) => a.username);
+            accounts = accounts.filter((a) => !lent.has(a.username.toLowerCase()));
+        }
+        if (accounts.length === 0) {
+            return sendJSON(res, 200, { queued: 0, message: 'No accounts to refresh (all tokened accounts are skip_wallet or loaned).', skipped_wallet: droppedSkip, skipped_loaned: droppedLent });
+        }
+        const job = makeJob('wallet-bulk', { total: accounts.length, usernames: accounts.map((a) => a.username) });
+        if (droppedSkip.length) jobLog(job, `Excluded ${droppedSkip.length} skip_wallet account(s).`);
+        if (droppedLent.length) jobLog(job, `Excluded ${droppedLent.length} loaned account(s).`);
+        enqueueSteamJob(job, () => runWalletJob(job, accounts, { mode, timeout: 60000, concurrency }));
+        return sendJSON(res, 202, { ...jobView(job, false), skipped_wallet: droppedSkip.length, skipped_loaned: droppedLent.length });
     }
 
     // Start a password login to (re)cache a refresh token for one account.
@@ -826,6 +888,57 @@ async function handleAPI(req, res, url) {
             usesSentGifts: !!b.usesSentGifts, item_name: b.item_name || null,
             subid: b.subid || null, reason: b.reason || 'unknown'
         }));
+    }
+
+    // --- update friends.country from a mapping (used by
+    //     update_friend_country_from_file.js — remote DB is the source of truth) --
+    if (method === 'POST' && p === '/api/friends/country') {
+        const b = await readBody(req);
+        const updates = Array.isArray(b.updates) ? b.updates : [];
+        const commit = !!b.commit;
+        if (updates.length === 0) return sendJSON(res, 400, { error: 'updates[] required' });
+
+        const findByName = db.prepare('SELECT account_steam_id, friend_steam_id, friend_name, country FROM friends WHERE lower(friend_name) = lower(?)');
+        const findBySteamID = db.prepare('SELECT account_steam_id, friend_steam_id, friend_name, country FROM friends WHERE friend_steam_id = ?');
+        const updByName = db.prepare('UPDATE friends SET country = ?, updated_at = unixepoch() WHERE lower(friend_name) = lower(?)');
+        const updBySteamID = db.prepare('UPDATE friends SET country = ?, updated_at = unixepoch() WHERE friend_steam_id = ?');
+
+        let willChange = 0;
+        let alreadyCorrect = 0;
+        const unmatched = [];
+        const changes = [];
+        for (const u of updates) {
+            const country = String(u.country || '').trim();
+            const key = String(u.key || '');
+            if (!country || !key) continue;
+            const bySteam = u.matchBy === 'steamid';
+            const rows = (bySteam ? findBySteamID : findByName).all(key);
+            if (rows.length === 0) { unmatched.push({ matchBy: u.matchBy, key }); continue; }
+            const rowChanges = rows.map((r) => ({
+                friend_name: r.friend_name, account_steam_id: r.account_steam_id,
+                current: r.country, new: country, will_change: r.country !== country
+            }));
+            willChange += rowChanges.filter((r) => r.will_change).length;
+            alreadyCorrect += rowChanges.filter((r) => !r.will_change).length;
+            changes.push({ matchBy: u.matchBy, key, country, rows: rowChanges });
+        }
+
+        let totalChanges = 0;
+        if (commit) {
+            const tx = db.transaction(() => {
+                let t = 0;
+                for (const u of updates) {
+                    const country = String(u.country || '').trim();
+                    const key = String(u.key || '');
+                    if (!country || !key) continue;
+                    const stmt = u.matchBy === 'steamid' ? updBySteamID : updByName;
+                    t += stmt.run(country, key).changes;
+                }
+                return t;
+            });
+            totalChanges = tx();
+        }
+        return sendJSON(res, 200, { willChange, alreadyCorrect, unmatched, changes, committed: commit, totalChanges });
     }
 
     // --- gifted recipients for a day range (used by mark_gifted.js --auto) ----

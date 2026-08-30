@@ -168,10 +168,33 @@ function viewAccounts() {
         );
     }, (a) => openDetail(a.steam_id));
 
-    return [toolbar({
+    const bar = toolbar({
         placeholder: 'Search account, persona, email, steamID…',
         filters: [['funded', 'Funded'], ['skip_wallet', 'skip_wallet'], ['tracked', 'Tracked'], ['loaned', 'Loaned'], ['no_token', 'No token']]
-    }), walletFilterBar(), rows];
+    });
+
+    // Bulk refresh wallet+level across all tokened accounts, minus skip_wallet /
+    // loaned (mirrors update_wallet_level.js). Progress streams into `progress`.
+    const progress = el('div');
+    const refreshBtn = el('button', { className: 'act primary' }, 'Refresh wallets/levels');
+    refreshBtn.onclick = async () => {
+        if (!confirm('Log into every tracked account (except skip_wallet and loaned) and refresh wallet + level?\n\nThis runs a batch of Steam logins and can take a while.')) return;
+        refreshBtn.disabled = true;
+        try {
+            const job = await api('/api/wallets/refresh', { method: 'POST', body: JSON.stringify({ mode: 'all' }) });
+            if (!job.id) { toast(job.message || 'Nothing to refresh', true); refreshBtn.disabled = false; return; }
+            const note = job.skipped_wallet ? ` (${job.skipped_wallet} skip_wallet excluded)` : '';
+            toast(`Refreshing ${job.total} account(s)${note}…`);
+            watchJob(job.id, progress, (done) => {
+                toast(`Wallet refresh done: ${done.ok}/${done.total} ok, ${done.failed} failed`);
+                refreshBtn.disabled = false;
+                if (state.view === 'accounts') load(); // reload table with fresh values
+            });
+        } catch (err) { toast(err.message, true); refreshBtn.disabled = false; }
+    };
+    bar.insertBefore(refreshBtn, bar.querySelector('.count'));
+
+    return [bar, progress, walletFilterBar(), rows];
 }
 
 // Wallet filter: currency dropdown (from the currencies actually present) + a

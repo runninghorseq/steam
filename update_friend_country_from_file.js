@@ -22,7 +22,32 @@
 //   COUNTRY_FILE=<path> node steam/update_friend_country_from_file.js --commit
 
 const fs = require('fs');
-const { db } = require('./db');
+
+// The dashboard API owns the friends data now (remote is the source of truth).
+// This script parses the local file and POSTs the country mapping to the API,
+// which does the matching + writes. No local DB access.
+// Override base with STEAM_API_BASE; token via STEAM_API_TOKEN / DASHBOARD_TOKEN.
+const API_BASE = (process.env.STEAM_API_BASE || 'https://steam.fungamingvn.space').replace(/\/+$/, '');
+const API_TOKEN = process.env.STEAM_API_TOKEN || process.env.DASHBOARD_TOKEN || '';
+
+async function apiPost(path, body) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        // Cloudflare fronts the domain and blocks non-browser signatures.
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+    };
+    if (API_TOKEN) headers['X-Dashboard-Token'] = API_TOKEN;
+    let resp;
+    try {
+        resp = await fetch(API_BASE + path, { method: 'POST', headers, body: JSON.stringify(body) });
+    } catch (e) {
+        throw new Error(`API unreachable at ${API_BASE} (${e.message})`);
+    }
+    if (resp.status === 401) throw new Error('API 401 unauthorized — set STEAM_API_TOKEN to match the server DASHBOARD_TOKEN');
+    if (!resp.ok) throw new Error(`API ${path} -> HTTP ${resp.status}`);
+    return resp.json();
+}
 
 // Most-recent country list (6-col pipe format with trailing |<country>). Other
 // recent candidates in the same dir:
@@ -56,9 +81,8 @@ const { db } = require('./db');
 //   .../acc_new_steam/20260606_1491_of_3k_outlook.txtresult.txt
 //   .../acc_new_steam/20260504_steam_4k_outlook.txt
 ///.  20260504_PTGO1774415483.txtresult.txt
-
 const DEFAULT_FILE =
-    '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260513_2650_outlook.txtresult.txt';
+    '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260526_1k_outlook_2005.txtresult.txt';
 
 const args = process.argv.slice(2);
 const COMMIT = args.includes('--commit');
@@ -142,78 +166,50 @@ if (skipped.length > 0) {
 }
 
 console.log(`Parsed ${mapping.length} rows from ${FILE}`);
-console.log(COMMIT ? 'Mode: COMMIT (writes will be saved)' : 'Mode: DRY RUN (no changes will be written — re-run with --commit to apply)\n');
 
-const findByName = db.prepare(
-    'SELECT account_steam_id, friend_steam_id, friend_name, country FROM friends WHERE lower(friend_name) = lower(?)'
-);
-const findBySteamID = db.prepare(
-    'SELECT account_steam_id, friend_steam_id, friend_name, country FROM friends WHERE friend_steam_id = ?'
-);
+(async () => {
+    console.log(`API: ${API_BASE}`);
+    console.log(COMMIT ? 'Mode: COMMIT (writes will be saved on the server)' : 'Mode: DRY RUN (no changes written — re-run with --commit to apply)\n');
 
-const updateByName = db.prepare('UPDATE friends SET country = ? WHERE lower(friend_name) = lower(?)');
-const updateBySteamID = db.prepare('UPDATE friends SET country = ? WHERE friend_steam_id = ?');
-
-let willChange = 0;
-let alreadyCorrect = 0;
-const unmatched = [];
-const changes = [];
-
-for (const m of mapping) {
-    const rows = m.matchBy === 'steamid' ? findBySteamID.all(m.key) : findByName.all(m.key);
-    if (rows.length === 0) {
-        unmatched.push(m);
-        continue;
+    let result;
+    try {
+        result = await apiPost('/api/friends/country', {
+            updates: mapping.map((m) => ({ matchBy: m.matchBy, key: m.key, country: m.country })),
+            commit: COMMIT
+        });
+    } catch (err) {
+        console.error(`Error: ${err.message}`);
+        process.exit(1);
     }
-    const rowChanges = rows.map((r) => ({
-        friend_name: r.friend_name,
-        account_steam_id: r.account_steam_id,
-        current: r.country,
-        new: m.country,
-        will_change: r.country !== m.country
-    }));
-    const changing = rowChanges.filter((r) => r.will_change).length;
-    willChange += changing;
-    alreadyCorrect += rowChanges.length - changing;
-    if (rowChanges.length > 0) changes.push({ ...m, rows: rowChanges });
-}
 
-// Preview
-console.log('=== Preview ===');
-for (const c of changes) {
-    const changingRows = c.rows.filter((r) => r.will_change);
-    if (changingRows.length === 0) continue;
-    const label = c.matchBy === 'steamid' ? `SteamID ${c.key}` : c.key;
-    console.log(`\n${label} -> ${c.country}`);
-    changingRows.forEach((r) => {
-        console.log(`  [${r.account_steam_id}] ${r.friend_name}: ${r.current || '(null)'} -> ${r.new}`);
-    });
-}
+    // Preview (only rows that would change)
+    console.log('=== Preview ===');
+    for (const c of result.changes || []) {
+        const changingRows = (c.rows || []).filter((r) => r.will_change);
+        if (changingRows.length === 0) continue;
+        const label = c.matchBy === 'steamid' ? `SteamID ${c.key}` : c.key;
+        console.log(`\n${label} -> ${c.country}`);
+        changingRows.forEach((r) => {
+            console.log(`  [${r.account_steam_id}] ${r.friend_name}: ${r.current || '(null)'} -> ${r.new}`);
+        });
+    }
 
-console.log('\n=== Summary ===');
-console.log(`Rows that would change:  ${willChange}`);
-console.log(`Already correct:         ${alreadyCorrect}`);
-console.log(`Unmatched:               ${unmatched.length}`);
-if (unmatched.length > 0) {
-    unmatched.slice(0, 10).forEach((u) => {
-        const label = u.matchBy === 'steamid' ? `SteamID ${u.key}` : u.key;
-        console.log(`  - ${label}`);
-    });
-    if (unmatched.length > 10) console.log(`  ...and ${unmatched.length - 10} more`);
-}
+    console.log('\n=== Summary ===');
+    console.log(`Rows that would change:  ${result.willChange}`);
+    console.log(`Already correct:         ${result.alreadyCorrect}`);
+    console.log(`Unmatched:               ${result.unmatched.length}`);
+    if (result.unmatched.length > 0) {
+        result.unmatched.slice(0, 10).forEach((u) => {
+            const label = u.matchBy === 'steamid' ? `SteamID ${u.key}` : u.key;
+            console.log(`  - ${label}`);
+        });
+        if (result.unmatched.length > 10) console.log(`  ...and ${result.unmatched.length - 10} more`);
+    }
 
-if (!COMMIT) {
-    console.log('\nDry run only. Re-run with --commit to save changes.');
+    if (!COMMIT) {
+        console.log('\nDry run only. Re-run with --commit to save changes.');
+        process.exit(0);
+    }
+    console.log(`\nCommitted on the server. ${result.totalChanges} friend rows updated.`);
     process.exit(0);
-}
-
-const tx = db.transaction(() => {
-    let totalChanges = 0;
-    for (const m of mapping) {
-        const stmt = m.matchBy === 'steamid' ? updateBySteamID : updateByName;
-        totalChanges += stmt.run(m.country, m.key).changes;
-    }
-    return totalChanges;
-});
-const totalChanges = tx();
-console.log(`\nCommitted. ${totalChanges} friend rows updated.`);
+})();
