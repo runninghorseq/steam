@@ -7,13 +7,12 @@ module.exports = {
   apps: [{
     name: 'steam',
     script: 'server.js',
-    args: '--host=0.0.0.0',   // expose on the network (Cloudflare/nginx sits in front)
     cwd: __dirname,
+    env_file: '/opt/steam/.env',
     autorestart: true,
     max_restarts: 10,
-    env: {
-      // DASHBOARD_TOKEN: '...'  // provide via the shell instead, e.g.
-      //   DASHBOARD_TOKEN=xxxx pm2 start ecosystem.config.js
-    },
+    min_uptime: '10s',
+    max_memory_restart: '500M',
+    time: true,
   }],
 };

@@ -704,6 +704,48 @@ async function openDetail(steamID) {
         a.has_token ? '' : el('span', { className: 'tag notok' }, 'no token — needs a login')
     );
 
+    // Remove friends — by name/steamID list or by friend_since date range.
+    // Dry-run is the DEFAULT (it deletes real Steam friends); a real removal asks
+    // to confirm. Runs on the box (proxied) and streams into the same runLog.
+    const rfMode = el('select', {}, el('option', { value: 'name' }, 'by name / steamID'), el('option', { value: 'date' }, 'by date added'));
+    const rfNames = el('textarea', { placeholder: 'names or 17-digit steamIDs, one per line', rows: 2, style: 'min-width:240px; font-family:var(--mono); font-size:12px; padding:6px; background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px' });
+    const rfFrom = el('input', { type: 'date' });
+    const rfTo = el('input', { type: 'date' });
+    const rfDates = el('span', { style: 'display:none; align-items:center; gap:6px', className: 'dim' }, 'from ', rfFrom, ' to ', rfTo);
+    const rfDry = el('input', { type: 'checkbox', checked: true });
+    const rfBtn = el('button', { className: 'act' }, 'Preview');
+    rfMode.onchange = () => { const d = rfMode.value === 'date'; rfNames.style.display = d ? 'none' : ''; rfDates.style.display = d ? 'inline-flex' : 'none'; };
+    rfDry.onchange = () => { rfBtn.textContent = rfDry.checked ? 'Preview' : 'Remove'; rfBtn.classList.toggle('primary', !rfDry.checked); };
+    rfBtn.onclick = async () => {
+        const mode = rfMode.value;
+        const payload = { mode, dryRun: rfDry.checked };
+        if (mode === 'name') {
+            payload.names = rfNames.value.split(/[\n,]+/).map((x) => x.trim()).filter(Boolean);
+            if (!payload.names.length) { toast('Enter at least one name/steamID', true); return; }
+        } else {
+            const f = Date.parse(rfFrom.value), t = Date.parse(rfTo.value + 'T23:59:59');
+            if (!f || !t) { toast('Pick both dates', true); return; }
+            payload.dateFrom = Math.floor(f / 1000); payload.dateTo = Math.floor(t / 1000);
+        }
+        if (!rfDry.checked && !confirm(`Really remove matching friends from ${a.account_name}? This cannot be undone.`)) return;
+        rfBtn.disabled = true;
+        try {
+            const job = await api(`/api/accounts/${a.steam_id}/remove-friends`, { method: 'POST', body: JSON.stringify(payload) });
+            toast(`Remove-friends job ${job.id} started`);
+            watchJob(job.id, runLog, (done) => {
+                const r = (done.results || [])[0] || {};
+                toast(r.dryRun ? `Dry-run: ${r.matched} matched` : `Removed ${(r.removed || []).length}`);
+                if (!rfDry.checked && state.view === 'accounts') load();
+            });
+        } catch (err) { toast(err.message, true); }
+        rfBtn.disabled = false;
+    };
+    const rfBar = el('div', { className: 'toolbar', style: 'margin-bottom:14px; flex-wrap:wrap' },
+        el('span', { className: 'dim', style: 'font-size:12px' }, 'Remove friends:'),
+        rfMode, rfNames, rfDates,
+        el('label', { style: 'display:flex; gap:5px; align-items:center; font-size:12px; color:var(--muted)' }, rfDry, 'dry-run'),
+        rfBtn);
+
     // Fetch/re-fetch a refresh token by logging in with the account password.
     // Handles a Steam Guard prompt inline. The password is sent once and cleared.
     const pw = el('input', { type: 'password', placeholder: 'account password', autocomplete: 'new-password', style: 'min-width:190px' });
@@ -762,7 +804,7 @@ async function openDetail(steamID) {
         el('span', { className: 'dim', style: 'font-size:12px' }, 'Token:'),
         pw, fetchBtn, guardInput, guardBtn, tokenStatus);
 
-    body.replaceChildren(runBar, tokenBar, runLog, kv, tabs, pane);
+    body.replaceChildren(runBar, rfBar, tokenBar, runLog, kv, tabs, pane);
 }
 
 // --- loading ----------------------------------------------------------------

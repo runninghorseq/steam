@@ -12,3 +12,4 @@ steam_accounts.db*
 .wrangler/
 cf/data*.sql
 cf/steam_full.sql
+.*

@@ -1,11 +1,7 @@
 const SteamUser = require('steam-user');
 const SteamCommunity = require('steamcommunity');
 const https = require('https');
-const {
-    db, saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts,
-    saveRefreshToken, getRefreshToken, clearRefreshToken
-} = require('./db');
-const cfMirror = require('./cf/d1_node');
+const store = require('./store');
 const { getUserCountry, getAccountPoints, fetchCommunityPage } = require('./steam_helpers');
 
 const STEAM_API_KEY = 'EFB5DCE316D3146FD6EFA3BECB8BCB80';
@@ -134,21 +130,9 @@ function scanAccount(account, opts = {}) {
             resolve(result);
         };
 
-        let mirrored = false;
-        const check = async () => {
-            if (!Object.values(flags).every(Boolean) || mirrored) return;
-            mirrored = true;
+        const check = () => {
+            if (!Object.values(flags).every(Boolean)) return;
             log(`${tag} done`);
-            if (cfMirror.enabled() && steamID) {
-                try {
-                    const acct = db.prepare('SELECT * FROM accounts WHERE steam_id = ?').get(steamID);
-                    if (acct) await cfMirror.mirrorUpsertRow('accounts', acct, { log: (m) => log(`${tag} ${m}`) });
-                    for (const [t, col] of [['friends', 'account_steam_id'], ['licenses', 'account_steam_id'], ['license_apps', 'account_steam_id'], ['sent_gifts', 'account_steam_id'], ['pending_gifts', 'account_steam_id']]) {
-                        const rows = db.prepare(`SELECT * FROM ${t} WHERE ${col} = ?`).all(steamID);
-                        await cfMirror.mirrorAccountTable(t, col, steamID, rows, { log: (m) => log(`${tag} ${m}`) });
-                    }
-                } catch (e) { log(`${tag} D1 mirror error: ${e.message}`); }
-            }
             finish({ ok: true, account });
         };
 
@@ -162,7 +146,7 @@ function scanAccount(account, opts = {}) {
             // If the saved refresh token was revoked/expired, drop it so the next run
             // falls back to password + 2FA prompt.
             if (/InvalidPassword|AccessDenied|Expired/i.test(err.message)) {
-                clearRefreshToken(account.username);
+                store.clearRefreshToken(account.username).catch(() => {});
                 log(`${tag} cleared cached refresh token`);
             }
             finish({ ok: false, reason: err.message, account });
@@ -181,7 +165,7 @@ function scanAccount(account, opts = {}) {
 
         // steam-user emits this once after a successful login; persist for next run.
         client.on('refreshToken', (token) => {
-            saveRefreshToken(account.username, token);
+            store.saveRefreshToken(account.username, token).catch(() => {});
             log(`${tag} refresh token saved`);
         });
 
@@ -192,15 +176,15 @@ function scanAccount(account, opts = {}) {
             client.gamesPlayed([]);
 
             // Real registered country — NOT accountInfo's ip_country (login-IP geolocation).
-            getUserCountry(client, steamID).then((country) => {
-                saveAccount({ steam_id: steamID, country });
+            getUserCountry(client, steamID).then(async (country) => {
+                await store.saveAccount({ steam_id: steamID, country });
                 log(`${tag} country: ${country ?? '(none)'}`);
                 flags.country = true;
                 check();
             });
 
-            getAccountPoints(client, steamID).then((points) => {
-                saveAccount({ steam_id: steamID, steam_points: points });
+            getAccountPoints(client, steamID).then(async (points) => {
+                await store.saveAccount({ steam_id: steamID, steam_points: points });
                 log(`${tag} points: ${points ?? '(none)'}`);
                 flags.points = true;
                 check();
@@ -210,8 +194,8 @@ function scanAccount(account, opts = {}) {
         // accountInfo passes positional args (name, country, ...), NOT an object.
         // We persist persona here; country comes from getUserCountry (the ip_country
         // arg is the login-IP geolocation, not the account's real country).
-        client.on('accountInfo', (name) => {
-            saveAccount({
+        client.on('accountInfo', async (name) => {
+            await store.saveAccount({
                 steam_id: steamID,
                 account_name: account.username,
                 persona: name,
@@ -225,18 +209,18 @@ function scanAccount(account, opts = {}) {
 
         // Email arrives in its own message (ClientEmailAddrInfo), independent of
         // accountInfo — so it must be persisted from this event, not from accountInfo.
-        client.on('emailInfo', (address) => {
-            saveAccount({ steam_id: steamID, email: address });
+        client.on('emailInfo', async (address) => {
+            await store.saveAccount({ steam_id: steamID, email: address });
             log(`${tag} email: ${address ?? '(none)'}`);
             flags.email = true;
             check();
         });
 
-        client.on('wallet', (hasWallet, currency, balance) => {
+        client.on('wallet', async (hasWallet, currency, balance) => {
             // steam-user emits `balance` already in main currency units (e.g. dollars),
             // not the smallest unit. Convert to integer cents for DB storage.
             const cents = balance == null ? null : Math.round(balance * 100);
-            saveAccount({
+            await store.saveAccount({
                 steam_id: steamID,
                 wallet_currency: SteamUser.ECurrencyCode[currency] || String(currency || ''),
                 wallet_balance_cents: cents
@@ -259,7 +243,7 @@ function scanAccount(account, opts = {}) {
                     relationship: typeof rel === 'number' ? rel : null
                 };
             });
-            saveFriends(steamID, dbFriends);
+            await store.saveFriends(steamID, dbFriends);
             log(`${tag} ${dbFriends.length} friends saved`);
             flags.friends = true;
             check();
@@ -268,8 +252,8 @@ function scanAccount(account, opts = {}) {
             const ids = [steamID, ...dbFriends.map(f => f.steam_id)];
             client.getSteamLevels(ids, (err, results) => {
                 if (!err && results) {
-                    saveAccount({ steam_id: steamID, steam_level: results[steamID] ?? null });
-                    saveFriends(steamID, dbFriends.map(f => ({ steam_id: f.steam_id, level: results[f.steam_id] ?? null })));
+                    store.saveAccount({ steam_id: steamID, steam_level: results[steamID] ?? null }).catch(() => {});
+                    store.saveFriends(steamID, dbFriends.map(f => ({ steam_id: f.steam_id, level: results[f.steam_id] ?? null }))).catch(() => {});
                     log(`${tag} levels saved (self=${results[steamID]})`);
                 } else if (err) {
                     log(`${tag} getSteamLevels error:`, err.message);
@@ -279,10 +263,10 @@ function scanAccount(account, opts = {}) {
             });
         });
 
-        client.on('licenses', (licenses) => {
+        client.on('licenses', async (licenses) => {
             licenses = licenses.filter(l => l.package_id !== 0);
             if (licenses.length === 0) {
-                saveLicenses(steamID, []);
+                await store.saveLicenses(steamID, []);
                 flags.licenses = true;
                 return check();
             }
@@ -299,7 +283,7 @@ function scanAccount(account, opts = {}) {
                     (pkg?.packageinfo?.appids || []).forEach(id => appIDs.add(id));
                 });
 
-                client.getProductInfo([...appIDs], [], true, (err2, appInfos) => {
+                client.getProductInfo([...appIDs], [], true, async (err2, appInfos) => {
                     const appNames = {};
                     if (!err2 && appInfos) {
                         Object.entries(appInfos).forEach(([id, info]) => {
@@ -318,7 +302,7 @@ function scanAccount(account, opts = {}) {
                             apps: (pkgInfo?.appids || []).map(id => ({ app_id: id, app_name: appNames[id] || null }))
                         };
                     });
-                    saveLicenses(steamID, dbRows);
+                    await store.saveLicenses(steamID, dbRows);
                     log(`${tag} ${dbRows.length} licenses saved`);
                     flags.licenses = true;
                     check();
@@ -336,15 +320,15 @@ function scanAccount(account, opts = {}) {
                 return check();
             }
             const gifts = parsePendingGifts(data);
-            saveGifts(steamID, gifts);
+            await store.saveGifts(steamID, gifts);
             const sent = parseSentGifts(data);
-            saveSentGifts(steamID, sent);
+            await store.saveSentGifts(steamID, sent);
             log(`${tag} ${gifts.length} received gifts, ${sent.length} sent gifts saved`);
             flags.gifts = true;
             check();
         });
 
-        const cachedToken = getRefreshToken(account.username);
+        store.getRefreshToken(account.username).then((cachedToken) => {
         if (cachedToken) {
             log(`${tag} using cached refresh token (no 2FA needed)`);
             client.logOn({ refreshToken: cachedToken });
@@ -352,6 +336,7 @@ function scanAccount(account, opts = {}) {
             log(`${tag} no cached token — using password (Steam Guard may prompt)`);
             client.logOn({ accountName: account.username, password: account.password });
         }
+        }).catch((e) => finish({ ok: false, reason: e.message, account }));
     });
 }
 

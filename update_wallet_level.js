@@ -1,9 +1,9 @@
 const SteamUser = require('steam-user');
 const SteamCommunity = require('steamcommunity');
-const { db, saveAccount, saveGifts, saveSentGifts, saveRefreshToken, getRefreshToken, clearRefreshToken } = require('./db');
+const { db } = require('./db');
+const store = require('./store');
 const { getUserCountry, getAccountPoints, fetchCommunityPage } = require('./steam_helpers');
 const { parsePendingGifts, parseSentGifts } = require('./single');
-const cfMirror = require('./cf/d1_node');
 
 /**
  * Log into a single account and update only its wallet balance + Steam level.
@@ -48,24 +48,11 @@ function updateWalletLevel(account, opts = {}) {
             resolve(result);
         };
 
-        let mirrored = false;
-        const check = async () => {
-            if (!Object.keys(need).every((k) => !need[k] || flags[k]) || mirrored) return;
-            mirrored = true;
-            log(`${tag} done`);
-            if (cfMirror.enabled() && steamID) {
-                try {
-                    const acct = db.prepare('SELECT * FROM accounts WHERE steam_id = ?').get(steamID);
-                    if (acct) await cfMirror.mirrorUpsertRow('accounts', acct, { log: (m) => log(`${tag} ${m}`) });
-                    if (doGifts) {
-                        for (const t of ['sent_gifts', 'pending_gifts']) {
-                            const rows = db.prepare(`SELECT * FROM ${t} WHERE account_steam_id = ?`).all(steamID);
-                            await cfMirror.mirrorAccountTable(t, 'account_steam_id', steamID, rows, { log: (m) => log(`${tag} ${m}`) });
-                        }
-                    }
-                } catch (e) { log(`${tag} D1 mirror error: ${e.message}`); }
+        const check = () => {
+            if (Object.keys(need).every((k) => !need[k] || flags[k])) {
+                log(`${tag} done`);
+                finish({ ok: true, username: account.username });
             }
-            finish({ ok: true, username: account.username });
         };
 
         const timer = setTimeout(() => {
@@ -76,14 +63,14 @@ function updateWalletLevel(account, opts = {}) {
         client.on('error', (err) => {
             log(`${tag} error:`, err.message);
             if (/InvalidPassword|AccessDenied|Expired/i.test(err.message)) {
-                clearRefreshToken(account.username);
+                store.clearRefreshToken(account.username).catch(() => {});
                 log(`${tag} cleared cached refresh token`);
             }
             finish({ ok: false, reason: err.message, username: account.username });
         });
 
         client.on('refreshToken', (token) => {
-            saveRefreshToken(account.username, token);
+            store.saveRefreshToken(account.username, token).catch(() => {});
             log(`${tag} refresh token saved`);
         });
 
@@ -96,15 +83,15 @@ function updateWalletLevel(account, opts = {}) {
             if (!isAll) return;
 
             // Real registered country — NOT accountInfo's ip_country (login-IP geolocation).
-            getUserCountry(client, steamID).then((country) => {
-                saveAccount({ steam_id: steamID, country });
+            getUserCountry(client, steamID).then(async (country) => {
+                await store.saveAccount({ steam_id: steamID, country });
                 log(`${tag} country: ${country ?? '(none)'}`);
                 flags.country = true;
                 check();
             });
 
-            getAccountPoints(client, steamID).then((points) => {
-                saveAccount({ steam_id: steamID, steam_points: points });
+            getAccountPoints(client, steamID).then(async (points) => {
+                await store.saveAccount({ steam_id: steamID, steam_points: points });
                 log(`${tag} points: ${points ?? '(none)'}`);
                 flags.points = true;
                 check();
@@ -114,8 +101,8 @@ function updateWalletLevel(account, opts = {}) {
         // accountInfo passes positional args (name, country, ...), NOT an object.
         // We persist persona here, but country comes from getUserCountry (the ip_country
         // arg is the login-IP geolocation, not the account's real country).
-        client.on('accountInfo', (name) => {
-            saveAccount({
+        client.on('accountInfo', async (name) => {
+            await store.saveAccount({
                 steam_id: steamID,
                 account_name: account.username,
                 persona: name
@@ -130,7 +117,7 @@ function updateWalletLevel(account, opts = {}) {
             client.getSteamLevels([steamID], (err, results) => {
                 const level = results?.[steamID];
                 if (!err && level != null) {
-                    saveAccount({ steam_id: steamID, steam_level: level });
+                    store.saveAccount({ steam_id: steamID, steam_level: level }).catch(() => {});
                     log(`${tag} level: ${level}`);
                 } else if (err) {
                     log(`${tag} getSteamLevels error:`, err.message);
@@ -144,18 +131,18 @@ function updateWalletLevel(account, opts = {}) {
 
         // Email arrives in its own message (ClientEmailAddrInfo), independent of
         // accountInfo — so it must be persisted from this event, not from accountInfo.
-        client.on('emailInfo', (address) => {
+        client.on('emailInfo', async (address) => {
             if (!isAll) return;
 
-            saveAccount({ steam_id: steamID, email: address });
+            await store.saveAccount({ steam_id: steamID, email: address });
             log(`${tag} email: ${address ?? '(none)'}`);
             flags.email = true;
             check();
         });
 
-        client.on('wallet', (hasWallet, currency, balance) => {
+        client.on('wallet', async (hasWallet, currency, balance) => {
             const cents = balance == null ? null : Math.round(balance * 100);
-            saveAccount({
+            await store.saveAccount({
                 steam_id: steamID,
                 wallet_currency: SteamUser.ECurrencyCode[currency] || String(currency || ''),
                 wallet_balance_cents: cents
@@ -178,15 +165,15 @@ function updateWalletLevel(account, opts = {}) {
                 return check();
             }
             const gifts = parsePendingGifts(data);
-            saveGifts(steamID, gifts);
+            await store.saveGifts(steamID, gifts);
             const sent = parseSentGifts(data);
-            saveSentGifts(steamID, sent);
+            await store.saveSentGifts(steamID, sent);
             log(`${tag} ${gifts.length} received gifts, ${sent.length} sent gifts saved`);
             flags.gifts = true;
             check();
         });
 
-        const cachedToken = getRefreshToken(account.username);
+        store.getRefreshToken(account.username).then((cachedToken) => {
         if (cachedToken) {
             log(`${tag} using cached refresh token`);
             client.logOn({ refreshToken: cachedToken });
@@ -196,6 +183,7 @@ function updateWalletLevel(account, opts = {}) {
         } else {
             finish({ ok: false, reason: 'no token and no password', username: account.username });
         }
+        }).catch((e) => finish({ ok: false, reason: e.message, username: account.username }));
     });
 }
 

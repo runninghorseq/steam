@@ -20,12 +20,14 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const SteamUser = require('steam-user');
-const { db, setAccountLoan, addAccountStub, saveRefreshToken } = require('./db');
+const { db, setAccountLoan, addAccountStub } = require('./db');
+const store = require('./store');
 const { scanAccount } = require('./single');
 const { parseSteamAccounts } = require('./multi_scan');
 const { syncAccount } = require('./sync_sent_gifts');
 const { updateWalletLevel } = require('./update_wallet_level');
 const { reloadFriends } = require('./reload_friends');
+const { removeFriends } = require('./remove_friends');
 const gift = require('./gift_api');
 const { removeAccount } = require('./remove_account');
 
@@ -88,7 +90,7 @@ function startLogin(steamID, accountName, password) {
     });
     // A successful credential login yields a refresh token — the whole point here.
     client.on('refreshToken', (token) => {
-        saveRefreshToken(accountName, token);
+        store.saveRefreshToken(accountName, token).catch(() => {});
         clearTimeout(timer);
         finish('done');
     });
@@ -269,6 +271,29 @@ async function runWalletJob(job, accounts, { mode, timeout, concurrency }) {
     job.status = 'done';
     job.finished_at = now();
     jobLog(job, `Done: ${job.ok}/${job.total} ok, ${job.failed} failed.`);
+}
+
+// Run a "remove friends" job (by name list or by friend_since date range).
+async function runRemoveFriendsJob(job, account, opts) {
+    job.status = 'running';
+    job.started_at = now();
+    const log = (...a) => jobLog(job, a.join(' '));
+    jobLog(job, `Remove friends on ${account.username} — mode=${opts.mode}, dryRun=${opts.dryRun}`);
+    let res;
+    try { res = await removeFriends(account, { ...opts, log }); }
+    catch (err) { res = { ok: false, reason: err.message }; }
+    job.done = 1;
+    if (res?.ok) {
+        job.ok = 1;
+        jobLog(job, res.dryRun ? `   OK (dry-run): ${res.matched} matched` : `   OK: removed ${res.removed.length}`);
+    } else {
+        job.failed = 1;
+        jobLog(job, `   FAIL: ${res?.reason || 'unknown'}`);
+    }
+    job.results.push({ username: account.username, ok: !!res?.ok, dryRun: !!res?.dryRun, matched: res?.matched ?? 0, removed: res?.removed || [], notFound: res?.notFound || [], reason: res?.reason || null });
+    job.status = 'done';
+    job.finished_at = now();
+    jobLog(job, 'Done.');
 }
 
 // Queue any Steam-login job (scan or sync) so only one runs at a time.
@@ -541,16 +566,17 @@ async function handleAPI(req, res, url) {
         const concurrency = Number(b.concurrency) >= 1 ? Math.min(Number(b.concurrency), 8) : 5;
 
         // Same selection as the update_wallet_level.js CLI default.
-        let accounts = db.prepare('SELECT account_name AS username FROM auth_tokens ORDER BY account_name').all();
+        const sel = await store.walletRefreshSelection();
+        let accounts = sel.tokened;
         let droppedSkip = [];
         if (!includeSkipped && (mode === 'all' || mode === 'wallet')) {
-            const skip = new Set(db.prepare("SELECT account_name FROM accounts WHERE skip_wallet = 1 AND account_name IS NOT NULL").all().map((r) => r.account_name.toLowerCase()));
+            const skip = new Set(sel.skip.map((r) => r.account_name.toLowerCase()));
             droppedSkip = accounts.filter((a) => skip.has(a.username.toLowerCase())).map((a) => a.username);
             accounts = accounts.filter((a) => !skip.has(a.username.toLowerCase()));
         }
         let droppedLent = [];
         if (!includeLent) {
-            const lent = new Set(db.prepare("SELECT account_name FROM accounts WHERE loan_id IS NOT NULL AND account_name IS NOT NULL").all().map((r) => r.account_name.toLowerCase()));
+            const lent = new Set(sel.lent.map((r) => r.account_name.toLowerCase()));
             droppedLent = accounts.filter((a) => lent.has(a.username.toLowerCase())).map((a) => a.username);
             accounts = accounts.filter((a) => !lent.has(a.username.toLowerCase()));
         }
@@ -569,7 +595,7 @@ async function handleAPI(req, res, url) {
     if (method === 'POST' && m) {
         const b = await readBody(req);
         if (!b.password) return sendJSON(res, 400, { error: 'password required' });
-        const acc = db.prepare('SELECT account_name FROM accounts WHERE steam_id = ?').get(m[1]);
+        const acc = { account_name: await store.accountNameBySteamID(m[1]) };
         if (!acc || !acc.account_name) return sendJSON(res, 400, { error: 'account not found, or has no login name' });
         const sess = startLogin(m[1], acc.account_name, String(b.password));
         return sendJSON(res, 202, { session_id: sess.sid, status: sess.status, account_name: acc.account_name });
@@ -598,13 +624,32 @@ async function handleAPI(req, res, url) {
         return sendJSON(res, 200, { status: sess.status });
     }
 
+    m = /^\/api\/accounts\/(\d{17})\/remove-friends$/.exec(p);
+    if (method === 'POST' && m) {
+        const b = await readBody(req);
+        const acc = { account_name: await store.accountNameBySteamID(m[1]) };
+        if (!acc || !acc.account_name) return sendJSON(res, 400, { error: 'account not found, or has no login name' });
+        const mode = b.mode === 'date' ? 'date' : 'name';
+        const names = Array.isArray(b.names) ? b.names : (b.names ? String(b.names).split(/[\n,]+/).map((x) => x.trim()).filter(Boolean) : []);
+        const excludeNames = Array.isArray(b.excludeNames) ? b.excludeNames : [];
+        const opts = {
+            mode, names, excludeNames,
+            dateFrom: Number(b.dateFrom), dateTo: Number(b.dateTo),
+            dryRun: b.dryRun !== false, // dry-run is the default; must send dryRun:false to actually remove
+            timeout: 120000,
+        };
+        const job = makeJob('remove-friends', { total: 1, usernames: [acc.account_name] });
+        enqueueSteamJob(job, () => runRemoveFriendsJob(job, { username: acc.account_name, steam_id: m[1] }, opts));
+        return sendJSON(res, 202, jobView(job, false));
+    }
+
     m = /^\/api\/accounts\/(\d{17})\/run$/.exec(p);
     if (method === 'POST' && m) {
         const { action, mode, timeout } = await readBody(req);
         if (!['scan', 'wallet', 'sync', 'friends'].includes(action)) {
             return sendJSON(res, 400, { error: "action must be one of: scan, wallet, sync, friends" });
         }
-        const acc = db.prepare('SELECT account_name FROM accounts WHERE steam_id = ?').get(m[1]);
+        const acc = { account_name: await store.accountNameBySteamID(m[1]) };
         if (!acc || !acc.account_name) {
             return sendJSON(res, 400, { error: 'account not found, or has no login name to run against' });
         }

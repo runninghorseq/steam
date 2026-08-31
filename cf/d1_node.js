@@ -90,4 +90,9 @@ async function mirrorUpsertRow(table, row, { log = () => {} } = {}) {
     }
 }
 
-module.exports = { d1, enabled, mirrorAccountTable, mirrorUpsertRow, CF_D1_DATABASE_ID };
+// Convenience wrappers around d1(): rows / first-row / run.
+async function d1all(sql, params = []) { const r = await d1(sql, params); return (r[0] && r[0].results) || []; }
+async function d1first(sql, params = []) { return (await d1all(sql, params))[0] || null; }
+async function d1run(sql, params = []) { const r = await d1(sql, params); return (r[0] && r[0].meta) || {}; }
+
+module.exports = { d1, d1all, d1first, d1run, enabled, mirrorAccountTable, mirrorUpsertRow, CF_D1_DATABASE_ID };

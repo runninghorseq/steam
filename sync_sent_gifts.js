@@ -19,67 +19,11 @@
 
 const SteamUser = require('steam-user');
 const SteamCommunity = require('steamcommunity');
-const { db, saveRefreshToken, getRefreshToken, clearRefreshToken, parseGiftedAt } = require('./db');
 const { parseSentGifts } = require('./single');
 const { fetchCommunityPage } = require('./steam_helpers');
-const { mirrorAccountTable } = require('./cf/d1_node');
+const store = require('./store');
 
 const now = () => Math.floor(Date.now() / 1000);
-
-const listSentGiftIDs = db.prepare(
-    'SELECT gift_id FROM sent_gifts WHERE account_steam_id = ?'
-);
-const deleteSentGiftByID = db.prepare(
-    'DELETE FROM sent_gifts WHERE account_steam_id = ? AND gift_id = ?'
-);
-const upsertSentGift = db.prepare(`
-INSERT INTO sent_gifts (gift_id, account_steam_id, recipient_steam_id, recipient_name, item_name, detail, sent_at, status, store_url, scanned_at, created_at, updated_at)
-VALUES (@gift_id, @account_steam_id, @recipient_steam_id, @recipient_name, @item_name, @detail, @sent_at, @status, @store_url, @scanned_at, @now, @now)
-ON CONFLICT(gift_id) DO UPDATE SET
-    account_steam_id = excluded.account_steam_id,
-    recipient_steam_id = excluded.recipient_steam_id,
-    recipient_name = excluded.recipient_name,
-    item_name = excluded.item_name,
-    detail = excluded.detail,
-    sent_at = excluded.sent_at,
-    status = excluded.status,
-    store_url = excluded.store_url,
-    scanned_at = excluded.scanned_at,
-    updated_at = excluded.updated_at
-`);
-
-// Reconcile one account's sent_gifts against the live list scraped from Steam.
-// Returns { kept, deleted: [gift_id, ...] }. Done in a single transaction so a
-// crash mid-sync can't leave the table half-pruned.
-const reconcileSentGifts = db.transaction((accountSteamID, liveGifts) => {
-    const ts = now();
-    const live = new Set(liveGifts.map((g) => g.gift_id));
-    const existing = listSentGiftIDs.all(accountSteamID).map((r) => r.gift_id);
-
-    const deleted = [];
-    for (const id of existing) {
-        if (!live.has(id)) {
-            deleteSentGiftByID.run(accountSteamID, id);
-            deleted.push(id);
-        }
-    }
-    for (const g of liveGifts) {
-        upsertSentGift.run({
-            gift_id: g.gift_id,
-            account_steam_id: accountSteamID,
-            recipient_steam_id: g.recipient_steam_id ?? null,
-            recipient_name: g.recipient_name ?? null,
-            item_name: g.item_name ?? null,
-            detail: g.detail ?? null,
-            sent_at: parseGiftedAt(g.sent_at),
-            status: g.status ?? null,
-            store_url: g.store_url ?? null,
-            scanned_at: ts,
-            now: ts
-        });
-    }
-    return { kept: liveGifts.length, deleted };
-});
 
 /**
  * Log into one account, scrape its live sent-gift list, and reconcile the DB.
@@ -115,15 +59,13 @@ function syncAccount(account, opts = {}) {
         client.on('error', (err) => {
             log(`${tag} error:`, err.message);
             if (/InvalidPassword|AccessDenied|Expired/i.test(err.message)) {
-                clearRefreshToken(account.username);
+                store.clearRefreshToken(account.username).catch(() => {});
                 log(`${tag} cleared cached refresh token`);
             }
             finish({ ok: false, reason: err.message, username: account.username });
         });
 
-        client.on('refreshToken', (token) => {
-            saveRefreshToken(account.username, token);
-        });
+        client.on('refreshToken', (token) => { store.saveRefreshToken(account.username, token).catch(() => {}); });
 
         client.on('loggedOn', () => {
             steamID = client.steamID.getSteamID64();
@@ -142,18 +84,12 @@ function syncAccount(account, opts = {}) {
                 return finish({ ok: false, reason, username: account.username });
             }
             const sent = parseSentGifts(data);
-            const { kept, deleted } = reconcileSentGifts(steamID, sent);
+            const { kept, deleted } = await store.reconcileSentGifts(steamID, sent);
             log(`${tag} ${kept} sent gift(s) on Steam, ${deleted.length} pruned${deleted.length ? `: ${deleted.join(', ')}` : ''}`);
-            // Mirror this account's sent_gifts into the shared D1 so the Cloudflare
-            // dashboard reflects the sync (no-op unless CF_* env is configured).
-            try {
-                const localSent = db.prepare('SELECT * FROM sent_gifts WHERE account_steam_id = ?').all(steamID);
-                await mirrorAccountTable('sent_gifts', 'account_steam_id', steamID, localSent, { log: (m) => log(`${tag} ${m}`) });
-            } catch (_) {}
             finish({ ok: true, username: account.username, kept, deleted });
         });
 
-        const cachedToken = getRefreshToken(account.username);
+        store.getRefreshToken(account.username).then((cachedToken) => {
         if (cachedToken) {
             log(`${tag} using cached refresh token`);
             client.logOn({ refreshToken: cachedToken });
@@ -161,6 +97,7 @@ function syncAccount(account, opts = {}) {
             log(`${tag} no cached token — skipping`);
             finish({ ok: false, reason: 'no cached token', username: account.username });
         }
+        }).catch((e) => finish({ ok: false, reason: e.message, username: account.username }));
     });
 }
 
@@ -238,4 +175,4 @@ if (require.main === module) {
         });
 }
 
-module.exports = { syncAccount, reconcileSentGifts };
+module.exports = { syncAccount, reconcileSentGifts: store.reconcileSentGifts };

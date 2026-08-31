@@ -12,7 +12,8 @@
 //   node steam/reload_friends.js <steamID> ...   # only the given account steamIDs
 
 const https = require('https');
-const { db, saveFriends } = require('./db');
+const { db } = require('./db');
+const store = require('./store');
 
 const API_KEY = 'EFB5DCE316D3146FD6EFA3BECB8BCB80';
 
@@ -57,20 +58,18 @@ async function fetchPersonas(steamIDs) {
 // Reload one account's friends from the Web API into the DB. Resolves with
 // { ok, total, added } (never rejects here — the caller decides). Reused by the
 // dashboard's per-account "Sync friends" action and the CLI below.
-const existingFriendIDs = db.prepare('SELECT friend_steam_id FROM friends WHERE account_steam_id = ?');
-
 async function reloadFriends(steamID, { log = () => {} } = {}) {
     const apiFriends = await fetchFriends(steamID);
     const ids = apiFriends.map((f) => f.steamid);
     const personas = await fetchPersonas(ids);
-    const known = new Set(existingFriendIDs.all(steamID).map((r) => r.friend_steam_id));
+    const known = new Set(await store.friendSteamIDs(steamID));
     const added = ids.filter((id) => !known.has(id)).length;
     const dbFriends = apiFriends.map((f) => ({
         steam_id: f.steamid,
         name: personas[f.steamid] ?? null,
         added_at: f.friend_since || null
     }));
-    saveFriends(steamID, dbFriends);
+    await store.saveFriends(steamID, dbFriends);
     log(`${dbFriends.length} friends (${added} new)`);
     return { ok: true, total: dbFriends.length, added };
 }

@@ -251,6 +251,24 @@ async function handleApi(req, env, url) {
     if (method === 'GET' && m) { const d = await accountDetail(env, m[1]); return d ? json(d) : json({ error: 'account not found' }, 404); }
     if (method === 'DELETE' && m) return notOnWorker('Account deletion');
 
+    // Bulk skip_wallet apply from a client-built filter (used by wallet_skip.js).
+    if (method === 'POST' && p === '/api/accounts/skip-wallet-bulk') {
+        const b = await body();
+        const where = String(b.where || '').trim();
+        const params = Array.isArray(b.params) ? b.params : [];
+        const target = b.target ? 1 : 0;
+        if (!where) return json({ error: 'where clause required' }, 400);
+        const cols = 'steam_id, account_name, wallet_currency, wallet_balance_cents, steam_level, loan_id, skip_wallet';
+        const rows = await rowsOf(env.DB.prepare(`SELECT ${cols} FROM accounts WHERE (${where}) AND skip_wallet != ? ORDER BY account_name`).bind(...params, target));
+        let changed = 0;
+        if (b.commit) {
+            const r = await env.DB.prepare(`UPDATE accounts SET skip_wallet = ?, updated_at = unixepoch() WHERE (${where}) AND skip_wallet != ?`).bind(target, ...params, target).run();
+            changed = r.meta.changes;
+        }
+        const totalFlagged = (await env.DB.prepare('SELECT COUNT(*) c FROM accounts WHERE skip_wallet = 1').first()).c;
+        return json({ rows, changed, committed: !!b.commit, totalFlagged });
+    }
+
     m = /^\/api\/accounts\/(\d{17})\/skip-wallet$/.exec(p);
     if (method === 'POST' && m) {
         const { value } = await body();
@@ -263,7 +281,7 @@ async function handleApi(req, env, url) {
         return changes ? json({ steam_id: m[1], loan_id: null }) : json({ error: 'account not found' }, 404);
     }
     // Steam-login per-account actions -> box only
-    if (method === 'POST' && (/^\/api\/accounts\/\d{17}\/(run|login)$/.test(p))) return proxyToBox(req, env, url);
+    if (method === 'POST' && (/^\/api\/accounts\/\d{17}\/(run|login|remove-friends)$/.test(p))) return proxyToBox(req, env, url);
     if (/^\/api\/accounts\/login\//.test(p)) return proxyToBox(req, env, url);
 
     if (method === 'GET' && p === '/api/loans') return json(await rowsOf(env.DB.prepare('SELECT * FROM account_loans ORDER BY returned_at IS NOT NULL, due_at ASC')));
