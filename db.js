@@ -363,8 +363,30 @@ function clearRefreshToken(accountName) {
     deleteToken.run(accountName);
 }
 
+// Replace an account's game-playtime snapshot (delete-then-insert), like saveGifts.
+const deletePlaytime = db.prepare('DELETE FROM game_playtime WHERE account_steam_id = ?');
+const insertPlaytime = db.prepare(`
+INSERT INTO game_playtime (account_steam_id, app_id, name, playtime_forever, playtime_2weeks, scanned_at, created_at, updated_at)
+VALUES (@account_steam_id, @app_id, @name, @playtime_forever, @playtime_2weeks, @now, @now, @now)
+`);
+const saveGamePlaytime = db.transaction((accountSteamID, games) => {
+    const ts = now();
+    deletePlaytime.run(accountSteamID);
+    for (const g of games) {
+        insertPlaytime.run({
+            account_steam_id: accountSteamID,
+            app_id: g.app_id ?? g.appid,
+            name: g.name ?? null,
+            playtime_forever: g.playtime_forever ?? 0,
+            playtime_2weeks: g.playtime_2weeks ?? 0,
+            now: ts
+        });
+    }
+    return games.length;
+});
+
 module.exports = {
     db, saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts,
     saveRefreshToken, getRefreshToken, clearRefreshToken,
-    isLoanedAccount, setAccountLoan, parseGiftedAt, addAccountStub
+    isLoanedAccount, setAccountLoan, parseGiftedAt, addAccountStub, saveGamePlaytime
 };

@@ -84,9 +84,16 @@ function syncAccount(account, opts = {}) {
                 return finish({ ok: false, reason, username: account.username });
             }
             const sent = parseSentGifts(data);
-            const { kept, deleted } = await store.reconcileSentGifts(steamID, sent);
-            log(`${tag} ${kept} sent gift(s) on Steam, ${deleted.length} pruned${deleted.length ? `: ${deleted.join(', ')}` : ''}`);
-            finish({ ok: true, username: account.username, kept, deleted });
+            try {
+                const { kept, deleted } = await store.reconcileSentGifts(steamID, sent);
+                log(`${tag} ${kept} sent gift(s) on Steam, ${deleted.length} pruned${deleted.length ? `: ${deleted.join(', ')}` : ''}`);
+                finish({ ok: true, username: account.username, kept, deleted });
+            } catch (e) {
+                // A failed D1/store write must resolve this account (not become an
+                // unhandled rejection or hang until timeout).
+                log(`${tag} reconcile failed: ${e.message || e}`);
+                finish({ ok: false, reason: `reconcile failed: ${e.message || e}`, username: account.username });
+            }
         });
 
         store.getRefreshToken(account.username).then((cachedToken) => {

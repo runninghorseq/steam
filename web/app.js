@@ -619,6 +619,7 @@ async function openDetail(steamID) {
          ['Wallet', money(a.wallet_balance_cents, a.wallet_currency)], ['Level', a.steam_level],
          ['Points', a.steam_points], ['Friends', a.friend_count], ['Licenses', a.license_count],
          ['Sent gifts', a.sent_gift_count], ['Pending gifts', a.pending_gift_count],
+         ['Playtime', a.playtime_minutes ? `${(a.playtime_minutes / 60).toFixed(1)} h (${a.game_count} games)` : '—'],
          ['Last scan', dateTime(a.scanned_at)], ['Source', a.source], ['Token', a.has_token ? 'cached' : 'none'],
          ['skip_wallet', a.skip_wallet ? 'yes' : 'no'], ['loan_id', a.loan_id ?? '—']
         ].map(([k, v]) => el('div', {}, el('span', {}, k), el('b', {}, v ?? '—')))
@@ -652,9 +653,46 @@ async function openDetail(steamID) {
         [`Licenses (${d.licenses.length})`]: () => table(
             [{ label: 'Package' }, { label: 'Name' }, { label: 'Payment' }, { label: 'Bought' }],
             d.licenses,
-            (l) => el('tr', {}, el('td', { className: 'dim num' }, l.package_id), el('td', {}, l.package_name || '—'),
+            (l) => el('tr', {}, el('td', { className: 'dim num' }, l.package_id), el('td', {}, l.app_names || (l.package_name && l.package_name !== '(unknown)' ? l.package_name : '') || '—'),
                 el('td', { className: 'dim' }, l.payment_method || '—'), el('td', { className: 'dim' }, date(l.purchased_at)))
         ),
+        [`Games`]: () => {
+            const box = el('div');
+            const list = el('div', { className: 'empty' }, 'Loading playtime…');
+            const logPanel = el('div');
+            const refreshBtn = el('button', { className: 'act' }, 'Refresh playtime');
+            const hrs = (m) => (m / 60).toFixed(1);
+            const loadGames = () => api(`/api/accounts/${a.steam_id}/playtime`).then((pt) => {
+                if (!pt.games || !pt.games.length) { list.replaceChildren(el('div', { className: 'empty' }, 'No playtime yet — click Refresh to log in and fetch it.')); return; }
+                const hdr = el('div', { className: 'dim', style: 'margin-bottom:8px' }, `${pt.count} games · ${pt.played} played · ${hrs(pt.total_minutes)} h total`);
+                const tbl = table(
+                    [{ label: 'Game' }, { label: 'Hours', num: true }, { label: 'Last 2wk', num: true }],
+                    pt.games,
+                    (g) => el('tr', {},
+                        el('td', {}, g.name || `app ${g.app_id}`),
+                        el('td', { className: 'num' }, hrs(g.playtime_forever)),
+                        el('td', { className: 'num dim' }, g.playtime_2weeks ? hrs(g.playtime_2weeks) : '—'))
+                );
+                list.replaceChildren(hdr, tbl);
+            }).catch((e) => list.replaceChildren(el('div', { className: 'empty' }, e.message)));
+            refreshBtn.onclick = async () => {
+                refreshBtn.disabled = true;
+                try {
+                    const job = await api(`/api/accounts/${a.steam_id}/run`, { method: 'POST', body: JSON.stringify({ action: 'playtime' }) });
+                    toast('Refreshing playtime — logging in…');
+                    watchJob(job.id, logPanel, (done) => {
+                        refreshBtn.disabled = false;
+                        if (done.ok) { toast('Playtime refreshed'); loadGames(); }
+                        else toast('Playtime refresh failed — see log', true);
+                    });
+                } catch (err) { toast(err.message, true); refreshBtn.disabled = false; }
+            };
+            box.replaceChildren(
+                el('div', { className: 'toolbar', style: 'margin-bottom:10px' }, refreshBtn, el('span', { className: 'dim', style: 'font-size:12px' }, 'logs into the account and re-reads its games')),
+                logPanel, list);
+            loadGames();
+            return box;
+        },
         [`Loans (${d.loans.length})`]: () => table(
             [{ label: '#' }, { label: 'Borrower' }, { label: 'Lent' }, { label: 'Due' }, { label: 'Returned' }],
             d.loans,
@@ -700,6 +738,7 @@ async function openDetail(steamID) {
         mkRun('Scan', 'scan'),
         mkRun('Wallet + Level', 'wallet'),
         mkRun('Sync friends', 'friends'),
+        mkRun('Playtime', 'playtime'),
         mkRun('Sync sent gifts', 'sync'),
         a.has_token ? '' : el('span', { className: 'tag notok' }, 'no token — needs a login')
     );

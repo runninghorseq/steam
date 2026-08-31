@@ -27,9 +27,21 @@ const { parseSteamAccounts } = require('./multi_scan');
 const { syncAccount } = require('./sync_sent_gifts');
 const { updateWalletLevel } = require('./update_wallet_level');
 const { reloadFriends } = require('./reload_friends');
+const { fetchPlaytime } = require('./steam_playtime');
 const { removeFriends } = require('./remove_friends');
 const gift = require('./gift_api');
 const { removeAccount } = require('./remove_account');
+
+// Backstop: a single misbehaving Steam login — steam-user throwing while it
+// processes a huge persona list, or a D1 write rejecting inside an async event
+// handler — must never take down the long-running dashboard process. Log and
+// keep serving; pm2 stays a last resort for truly fatal states.
+process.on('unhandledRejection', (reason) => {
+    console.error('[unhandledRejection]', (reason && reason.stack) || reason);
+});
+process.on('uncaughtException', (err) => {
+    console.error('[uncaughtException]', (err && err.stack) || err);
+});
 
 // In-memory job registry for background scan runs. Jobs live only as long as the
 // server process — they are progress trackers for a long Steam-login sweep, not
@@ -221,6 +233,7 @@ async function runSingleAccountJob(job, account, action, opts) {
         else if (action === 'wallet') res = await updateWalletLevel(account, { timeout: opts.timeout, log, mode: opts.mode || 'all' });
         else if (action === 'sync') res = await syncAccount(account, { timeout: opts.timeout, log });
         else if (action === 'friends') res = await reloadFriends(account.steam_id, { log });
+        else if (action === 'playtime') res = await fetchPlaytime(account, { timeout: opts.timeout, log });
         else res = { ok: false, reason: `unknown action '${action}'` };
     } catch (err) {
         res = { ok: false, reason: err.message };
@@ -344,7 +357,9 @@ const ACCOUNT_COLS = `
     (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id) AS friend_count,
     (SELECT COUNT(*) FROM sent_gifts s WHERE s.account_steam_id = a.steam_id) AS sent_gift_count,
     (SELECT COUNT(*) FROM pending_gifts p WHERE p.account_steam_id = a.steam_id) AS pending_gift_count,
-    (SELECT COUNT(*) FROM licenses l WHERE l.account_steam_id = a.steam_id) AS license_count
+    (SELECT COUNT(*) FROM licenses l WHERE l.account_steam_id = a.steam_id) AS license_count,
+    (SELECT COUNT(*) FROM game_playtime gp WHERE gp.account_steam_id = a.steam_id) AS game_count,
+    (SELECT COALESCE(SUM(playtime_forever),0) FROM game_playtime gp WHERE gp.account_steam_id = a.steam_id) AS playtime_minutes
 `;
 
 // Whitelist of sortable columns — the value goes into SQL, so it can never come
@@ -406,8 +421,10 @@ function accountDetail(steamID) {
         sent_gifts: db.prepare('SELECT * FROM sent_gifts WHERE account_steam_id = ? ORDER BY sent_at IS NULL, sent_at ASC').all(steamID),
         pending_gifts: db.prepare('SELECT * FROM pending_gifts WHERE account_steam_id = ? ORDER BY scanned_at DESC').all(steamID),
         licenses: db.prepare(`
-            SELECT package_id, package_name, payment_method, license_type, purchased_at
-            FROM licenses WHERE account_steam_id = ? ORDER BY purchased_at DESC
+            SELECT l.package_id, l.package_name, l.payment_method, l.license_type, l.purchased_at,
+                   (SELECT group_concat(DISTINCT la.app_name) FROM license_apps la
+                    WHERE la.account_steam_id = l.account_steam_id AND la.package_id = l.package_id) AS app_names
+            FROM licenses l WHERE l.account_steam_id = ? ORDER BY l.purchased_at DESC
         `).all(steamID),
         loans: db.prepare('SELECT * FROM account_loans WHERE lower(account_name) = lower(?) ORDER BY lent_at DESC')
             .all(account.account_name || '')
@@ -590,6 +607,14 @@ async function handleAPI(req, res, url) {
         return sendJSON(res, 202, { ...jobView(job, false), skipped_wallet: droppedSkip.length, skipped_loaned: droppedLent.length });
     }
 
+    // Read an account's stored game playtime.
+    m = /^\/api\/accounts\/(\d{17})\/playtime$/.exec(p);
+    if (method === 'GET' && m) {
+        const rows = db.prepare('SELECT app_id, name, playtime_forever, playtime_2weeks, scanned_at FROM game_playtime WHERE account_steam_id = ? ORDER BY playtime_forever DESC').all(m[1]);
+        const total = rows.reduce((s, r) => s + (r.playtime_forever || 0), 0);
+        return sendJSON(res, 200, { games: rows, count: rows.length, played: rows.filter((r) => r.playtime_forever > 0).length, total_minutes: total });
+    }
+
     // Start a password login to (re)cache a refresh token for one account.
     m = /^\/api\/accounts\/(\d{17})\/login$/.exec(p);
     if (method === 'POST' && m) {
@@ -646,8 +671,8 @@ async function handleAPI(req, res, url) {
     m = /^\/api\/accounts\/(\d{17})\/run$/.exec(p);
     if (method === 'POST' && m) {
         const { action, mode, timeout } = await readBody(req);
-        if (!['scan', 'wallet', 'sync', 'friends'].includes(action)) {
-            return sendJSON(res, 400, { error: "action must be one of: scan, wallet, sync, friends" });
+        if (!['scan', 'wallet', 'sync', 'friends', 'playtime'].includes(action)) {
+            return sendJSON(res, 400, { error: "action must be one of: scan, wallet, sync, friends, playtime" });
         }
         const acc = { account_name: await store.accountNameBySteamID(m[1]) };
         if (!acc || !acc.account_name) {

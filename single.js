@@ -136,6 +136,13 @@ function scanAccount(account, opts = {}) {
             finish({ ok: true, account });
         };
 
+        // steam-user's EventEmitter does not await async handlers, so a rejected
+        // store/D1 write inside one would become an unhandled rejection (which, en
+        // masse, crashes the process). Route async handlers through this wrapper so
+        // any failure is logged and contained to this account.
+        const onSafe = (event, fn) => client.on(event, (...args) =>
+            Promise.resolve().then(() => fn(...args)).catch((e) => log(`${tag} ${event} handler failed: ${e.message || e}`)));
+
         const timer = setTimeout(() => {
             log(`${tag} timeout — partial flags:`, flags);
             finish({ ok: false, reason: 'timeout', account, partial: { ...flags } });
@@ -181,20 +188,20 @@ function scanAccount(account, opts = {}) {
                 log(`${tag} country: ${country ?? '(none)'}`);
                 flags.country = true;
                 check();
-            });
+            }).catch((e) => { log(`${tag} country step failed: ${e.message || e}`); flags.country = true; check(); });
 
             getAccountPoints(client, steamID).then(async (points) => {
                 await store.saveAccount({ steam_id: steamID, steam_points: points });
                 log(`${tag} points: ${points ?? '(none)'}`);
                 flags.points = true;
                 check();
-            });
+            }).catch((e) => { log(`${tag} points step failed: ${e.message || e}`); flags.points = true; check(); });
         });
 
         // accountInfo passes positional args (name, country, ...), NOT an object.
         // We persist persona here; country comes from getUserCountry (the ip_country
         // arg is the login-IP geolocation, not the account's real country).
-        client.on('accountInfo', async (name) => {
+        onSafe('accountInfo', async (name) => {
             await store.saveAccount({
                 steam_id: steamID,
                 account_name: account.username,
@@ -209,14 +216,14 @@ function scanAccount(account, opts = {}) {
 
         // Email arrives in its own message (ClientEmailAddrInfo), independent of
         // accountInfo — so it must be persisted from this event, not from accountInfo.
-        client.on('emailInfo', async (address) => {
+        onSafe('emailInfo', async (address) => {
             await store.saveAccount({ steam_id: steamID, email: address });
             log(`${tag} email: ${address ?? '(none)'}`);
             flags.email = true;
             check();
         });
 
-        client.on('wallet', async (hasWallet, currency, balance) => {
+        onSafe('wallet', async (hasWallet, currency, balance) => {
             // steam-user emits `balance` already in main currency units (e.g. dollars),
             // not the smallest unit. Convert to integer cents for DB storage.
             const cents = balance == null ? null : Math.round(balance * 100);
@@ -230,7 +237,7 @@ function scanAccount(account, opts = {}) {
             check();
         });
 
-        client.on('friendsList', async () => {
+        onSafe('friendsList', async () => {
             const apiFriends = await fetchFriendsFromAPI(steamID);
             const apiMap = Object.fromEntries(apiFriends.map(f => [f.steamid, f]));
             const dbFriends = Object.keys(client.myFriends).map(sid => {
@@ -263,7 +270,7 @@ function scanAccount(account, opts = {}) {
             });
         });
 
-        client.on('licenses', async (licenses) => {
+        onSafe('licenses', async (licenses) => {
             licenses = licenses.filter(l => l.package_id !== 0);
             if (licenses.length === 0) {
                 await store.saveLicenses(steamID, []);
@@ -310,7 +317,7 @@ function scanAccount(account, opts = {}) {
             });
         });
 
-        client.on('webSession', async (sessionID, cookies) => {
+        onSafe('webSession', async (sessionID, cookies) => {
             community.setCookies(cookies);
             const url = `https://steamcommunity.com/profiles/${steamID}/inventory/`;
             const { ok, status, data, error } = await fetchCommunityPage(community, url, { log, tag });

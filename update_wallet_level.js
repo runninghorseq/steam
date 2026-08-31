@@ -55,6 +55,12 @@ function updateWalletLevel(account, opts = {}) {
             }
         };
 
+        // Async event handlers whose store/D1 write rejects would become unhandled
+        // rejections (steam-user does not await handlers) — route them through this
+        // wrapper so a write failure is logged and contained to this account.
+        const onSafe = (event, fn) => client.on(event, (...args) =>
+            Promise.resolve().then(() => fn(...args)).catch((e) => log(`${tag} ${event} handler failed: ${e.message || e}`)));
+
         const timer = setTimeout(() => {
             log(`${tag} timeout — partial:`, flags);
             finish({ ok: false, reason: 'timeout', username: account.username, partial: { ...flags } });
@@ -88,20 +94,20 @@ function updateWalletLevel(account, opts = {}) {
                 log(`${tag} country: ${country ?? '(none)'}`);
                 flags.country = true;
                 check();
-            });
+            }).catch((e) => { log(`${tag} country step failed: ${e.message || e}`); flags.country = true; check(); });
 
             getAccountPoints(client, steamID).then(async (points) => {
                 await store.saveAccount({ steam_id: steamID, steam_points: points });
                 log(`${tag} points: ${points ?? '(none)'}`);
                 flags.points = true;
                 check();
-            });
+            }).catch((e) => { log(`${tag} points step failed: ${e.message || e}`); flags.points = true; check(); });
         });
 
         // accountInfo passes positional args (name, country, ...), NOT an object.
         // We persist persona here, but country comes from getUserCountry (the ip_country
         // arg is the login-IP geolocation, not the account's real country).
-        client.on('accountInfo', async (name) => {
+        onSafe('accountInfo', async (name) => {
             await store.saveAccount({
                 steam_id: steamID,
                 account_name: account.username,
@@ -131,7 +137,7 @@ function updateWalletLevel(account, opts = {}) {
 
         // Email arrives in its own message (ClientEmailAddrInfo), independent of
         // accountInfo — so it must be persisted from this event, not from accountInfo.
-        client.on('emailInfo', async (address) => {
+        onSafe('emailInfo', async (address) => {
             if (!isAll) return;
 
             await store.saveAccount({ steam_id: steamID, email: address });
@@ -140,7 +146,7 @@ function updateWalletLevel(account, opts = {}) {
             check();
         });
 
-        client.on('wallet', async (hasWallet, currency, balance) => {
+        onSafe('wallet', async (hasWallet, currency, balance) => {
             const cents = balance == null ? null : Math.round(balance * 100);
             await store.saveAccount({
                 steam_id: steamID,
@@ -154,7 +160,7 @@ function updateWalletLevel(account, opts = {}) {
 
         // Scrape the server-rendered inventory page for pending (unredeemed) gifts,
         // same as single.js's full scan.
-        client.on('webSession', async (sessionID, cookies) => {
+        onSafe('webSession', async (sessionID, cookies) => {
             if (!doGifts) return;
             community.setCookies(cookies);
             const url = `https://steamcommunity.com/profiles/${steamID}/inventory/`;

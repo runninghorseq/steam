@@ -156,6 +156,23 @@ CREATE TABLE IF NOT EXISTS account_loans (
 );
 
 -- ----------------------------------------------------------------------------
+-- game_playtime: per-account owned games + playtime, scraped from the account's
+--   own community games page (works for private profiles when logged in as the
+--   owner). Written by steam_playtime.js. Playtime is stored in MINUTES.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS game_playtime (
+    account_steam_id  TEXT,
+    app_id            INTEGER,
+    name              TEXT,
+    playtime_forever  INTEGER,  -- minutes, all time
+    playtime_2weeks   INTEGER,  -- minutes, last 2 weeks
+    scanned_at        INTEGER,
+    created_at        INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at        INTEGER NOT NULL DEFAULT (unixepoch()),
+    PRIMARY KEY (account_steam_id, app_id)
+);
+
+-- ----------------------------------------------------------------------------
 -- feedback: 1-5 star reviews left through the dashboard's Feedback form.
 -- ----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS feedback (

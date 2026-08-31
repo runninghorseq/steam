@@ -91,7 +91,9 @@ const ACCOUNT_COLS = `
     (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id) AS friend_count,
     (SELECT COUNT(*) FROM sent_gifts s WHERE s.account_steam_id = a.steam_id) AS sent_gift_count,
     (SELECT COUNT(*) FROM pending_gifts p WHERE p.account_steam_id = a.steam_id) AS pending_gift_count,
-    (SELECT COUNT(*) FROM licenses l WHERE l.account_steam_id = a.steam_id) AS license_count`;
+    (SELECT COUNT(*) FROM licenses l WHERE l.account_steam_id = a.steam_id) AS license_count,
+    (SELECT COUNT(*) FROM game_playtime gp WHERE gp.account_steam_id = a.steam_id) AS game_count,
+    (SELECT COALESCE(SUM(playtime_forever),0) FROM game_playtime gp WHERE gp.account_steam_id = a.steam_id) AS playtime_minutes`;
 
 const SORTABLE = {
     account_name: 'a.account_name COLLATE NOCASE', persona: 'a.persona COLLATE NOCASE',
@@ -124,7 +126,7 @@ async function accountDetail(env, steamID) {
         friends: await q('SELECT friend_steam_id, friend_name, friend_level, added_at, relationship, gifted_at, gifted_game, country FROM friends WHERE account_steam_id = ? ORDER BY added_at DESC'),
         sent_gifts: await q('SELECT * FROM sent_gifts WHERE account_steam_id = ? ORDER BY sent_at IS NULL, sent_at ASC'),
         pending_gifts: await q('SELECT * FROM pending_gifts WHERE account_steam_id = ? ORDER BY scanned_at DESC'),
-        licenses: await q('SELECT package_id, package_name, payment_method, license_type, purchased_at FROM licenses WHERE account_steam_id = ? ORDER BY purchased_at DESC'),
+        licenses: await q(`SELECT l.package_id, l.package_name, l.payment_method, l.license_type, l.purchased_at, (SELECT group_concat(DISTINCT la.app_name) FROM license_apps la WHERE la.account_steam_id = l.account_steam_id AND la.package_id = l.package_id) AS app_names FROM licenses l WHERE l.account_steam_id = ? ORDER BY l.purchased_at DESC`),
         loans: await rowsOf(env.DB.prepare('SELECT * FROM account_loans WHERE lower(account_name) = lower(?) ORDER BY lent_at DESC').bind(account.account_name || '')),
     };
 }
@@ -249,6 +251,13 @@ async function handleApi(req, env, url) {
 
     let m = /^\/api\/accounts\/(\d{17})$/.exec(p);
     if (method === 'GET' && m) { const d = await accountDetail(env, m[1]); return d ? json(d) : json({ error: 'account not found' }, 404); }
+
+    m = /^\/api\/accounts\/(\d{17})\/playtime$/.exec(p);
+    if (method === 'GET' && m) {
+        const rows = await rowsOf(env.DB.prepare('SELECT app_id, name, playtime_forever, playtime_2weeks, scanned_at FROM game_playtime WHERE account_steam_id = ? ORDER BY playtime_forever DESC').bind(m[1]));
+        const total = rows.reduce((s, r) => s + (r.playtime_forever || 0), 0);
+        return json({ games: rows, count: rows.length, played: rows.filter((r) => r.playtime_forever > 0).length, total_minutes: total });
+    }
     if (method === 'DELETE' && m) return notOnWorker('Account deletion');
 
     // Bulk skip_wallet apply from a client-built filter (used by wallet_skip.js).
