@@ -22,6 +22,7 @@ const SteamCommunity = require('steamcommunity');
 const { db, saveRefreshToken, getRefreshToken, clearRefreshToken, parseGiftedAt } = require('./db');
 const { parseSentGifts } = require('./single');
 const { fetchCommunityPage } = require('./steam_helpers');
+const { mirrorAccountTable } = require('./cf/d1_node');
 
 const now = () => Math.floor(Date.now() / 1000);
 
@@ -143,6 +144,12 @@ function syncAccount(account, opts = {}) {
             const sent = parseSentGifts(data);
             const { kept, deleted } = reconcileSentGifts(steamID, sent);
             log(`${tag} ${kept} sent gift(s) on Steam, ${deleted.length} pruned${deleted.length ? `: ${deleted.join(', ')}` : ''}`);
+            // Mirror this account's sent_gifts into the shared D1 so the Cloudflare
+            // dashboard reflects the sync (no-op unless CF_* env is configured).
+            try {
+                const localSent = db.prepare('SELECT * FROM sent_gifts WHERE account_steam_id = ?').all(steamID);
+                await mirrorAccountTable('sent_gifts', 'account_steam_id', steamID, localSent, { log: (m) => log(`${tag} ${m}`) });
+            } catch (_) {}
             finish({ ok: true, username: account.username, kept, deleted });
         });
 

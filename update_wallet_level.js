@@ -3,6 +3,7 @@ const SteamCommunity = require('steamcommunity');
 const { db, saveAccount, saveGifts, saveSentGifts, saveRefreshToken, getRefreshToken, clearRefreshToken } = require('./db');
 const { getUserCountry, getAccountPoints, fetchCommunityPage } = require('./steam_helpers');
 const { parsePendingGifts, parseSentGifts } = require('./single');
+const cfMirror = require('./cf/d1_node');
 
 /**
  * Log into a single account and update only its wallet balance + Steam level.
@@ -47,11 +48,24 @@ function updateWalletLevel(account, opts = {}) {
             resolve(result);
         };
 
-        const check = () => {
-            if (Object.keys(need).every((k) => !need[k] || flags[k])) {
-                log(`${tag} done`);
-                finish({ ok: true, username: account.username });
+        let mirrored = false;
+        const check = async () => {
+            if (!Object.keys(need).every((k) => !need[k] || flags[k]) || mirrored) return;
+            mirrored = true;
+            log(`${tag} done`);
+            if (cfMirror.enabled() && steamID) {
+                try {
+                    const acct = db.prepare('SELECT * FROM accounts WHERE steam_id = ?').get(steamID);
+                    if (acct) await cfMirror.mirrorUpsertRow('accounts', acct, { log: (m) => log(`${tag} ${m}`) });
+                    if (doGifts) {
+                        for (const t of ['sent_gifts', 'pending_gifts']) {
+                            const rows = db.prepare(`SELECT * FROM ${t} WHERE account_steam_id = ?`).all(steamID);
+                            await cfMirror.mirrorAccountTable(t, 'account_steam_id', steamID, rows, { log: (m) => log(`${tag} ${m}`) });
+                        }
+                    }
+                } catch (e) { log(`${tag} D1 mirror error: ${e.message}`); }
             }
+            finish({ ok: true, username: account.username });
         };
 
         const timer = setTimeout(() => {

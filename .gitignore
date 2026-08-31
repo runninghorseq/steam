@@ -8,3 +8,7 @@ node_modules/
 backups/
 .DS_Store
 steam_accounts.db*
+# Cloudflare
+.wrangler/
+cf/data*.sql
+cf/steam_full.sql

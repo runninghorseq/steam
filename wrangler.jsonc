@@ -1,0 +1,15 @@
+{
+  "name": "steam-dashboard",
+  "account_id": "37280e9eb5701c9a72e1eb8d815c614a",
+  "main": "cf/worker.js",
+  "compatibility_date": "2026-01-10",
+  "compatibility_flags": ["nodejs_compat"],
+  // Run the Worker (auth) BEFORE serving static assets, so ?token= sets the
+  // cookie and every page/asset is gated. Without this, static files bypass the
+  // Worker and the token-cookie flow never runs.
+  "assets": { "directory": "./web", "binding": "ASSETS", "run_worker_first": true },
+  // D1 database on the fungamingsteam account.
+  "d1_databases": [
+    { "binding": "DB", "database_name": "steam", "database_id": "5d137a2b-599b-4621-99c1-aef4b0ebd93d" }
+  ]
+}

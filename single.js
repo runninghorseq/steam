@@ -2,9 +2,10 @@ const SteamUser = require('steam-user');
 const SteamCommunity = require('steamcommunity');
 const https = require('https');
 const {
-    saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts,
+    db, saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts,
     saveRefreshToken, getRefreshToken, clearRefreshToken
 } = require('./db');
+const cfMirror = require('./cf/d1_node');
 const { getUserCountry, getAccountPoints, fetchCommunityPage } = require('./steam_helpers');
 
 const STEAM_API_KEY = 'EFB5DCE316D3146FD6EFA3BECB8BCB80';
@@ -133,11 +134,22 @@ function scanAccount(account, opts = {}) {
             resolve(result);
         };
 
-        const check = () => {
-            if (Object.values(flags).every(Boolean)) {
-                log(`${tag} done`);
-                finish({ ok: true, account });
+        let mirrored = false;
+        const check = async () => {
+            if (!Object.values(flags).every(Boolean) || mirrored) return;
+            mirrored = true;
+            log(`${tag} done`);
+            if (cfMirror.enabled() && steamID) {
+                try {
+                    const acct = db.prepare('SELECT * FROM accounts WHERE steam_id = ?').get(steamID);
+                    if (acct) await cfMirror.mirrorUpsertRow('accounts', acct, { log: (m) => log(`${tag} ${m}`) });
+                    for (const [t, col] of [['friends', 'account_steam_id'], ['licenses', 'account_steam_id'], ['license_apps', 'account_steam_id'], ['sent_gifts', 'account_steam_id'], ['pending_gifts', 'account_steam_id']]) {
+                        const rows = db.prepare(`SELECT * FROM ${t} WHERE ${col} = ?`).all(steamID);
+                        await cfMirror.mirrorAccountTable(t, col, steamID, rows, { log: (m) => log(`${tag} ${m}`) });
+                    }
+                } catch (e) { log(`${tag} D1 mirror error: ${e.message}`); }
             }
+            finish({ ok: true, account });
         };
 
         const timer = setTimeout(() => {
