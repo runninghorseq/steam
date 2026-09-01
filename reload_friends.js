@@ -55,23 +55,39 @@ async function fetchPersonas(steamIDs) {
     return names;
 }
 
-// Reload one account's friends from the Web API into the DB. Resolves with
-// { ok, total, added } (never rejects here — the caller decides). Reused by the
-// dashboard's per-account "Sync friends" action and the CLI below.
+// Reload one account's friends from the Web API into the DB, reconciling both
+// ways: new friends are upserted, and friends no longer on the account are pruned
+// from the DB. Resolves with { ok, total, added, deleted } (never rejects here —
+// the caller decides). Reused by the dashboard's per-account "Sync friends"
+// action and the CLI below.
+//
+// fetchFriends only returns a list for a public/reachable friend list; a private
+// profile makes it throw (401) before we get here, so we never prune to empty on
+// an error — an empty live list means the account genuinely has no friends.
 async function reloadFriends(steamID, { log = () => {} } = {}) {
     const apiFriends = await fetchFriends(steamID);
     const ids = apiFriends.map((f) => f.steamid);
     const personas = await fetchPersonas(ids);
     const known = new Set(await store.friendSteamIDs(steamID));
+    const liveSet = new Set(ids);
     const added = ids.filter((id) => !known.has(id)).length;
+    let deleted = [...known].filter((id) => !liveSet.has(id)); // in DB, gone from Steam
+    // Guard: a 200-but-empty response (transient API glitch) would prune every
+    // friend. Refuse the total wipe; a normal reload that drops some friends still
+    // prunes. The next good reload reconciles if the account really hit zero.
+    if (ids.length === 0 && known.size > 0) {
+        log(`skipping prune — API returned 0 friends but DB has ${known.size} (treating as untrusted)`);
+        deleted = [];
+    }
     const dbFriends = apiFriends.map((f) => ({
         steam_id: f.steamid,
         name: personas[f.steamid] ?? null,
         added_at: f.friend_since || null
     }));
     await store.saveFriends(steamID, dbFriends);
-    log(`${dbFriends.length} friends (${added} new)`);
-    return { ok: true, total: dbFriends.length, added };
+    if (deleted.length) await store.removeFriendRows(steamID, deleted);
+    log(`${dbFriends.length} friends (${added} new, ${deleted.length} pruned)`);
+    return { ok: true, total: dbFriends.length, added, deleted };
 }
 
 async function runCli() {
