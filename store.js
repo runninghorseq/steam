@@ -25,8 +25,10 @@ const USE_WORKER = !!WORKER_URL;
 const USE_D1 = !USE_WORKER && d1n.enabled();
 
 const now = () => Math.floor(Date.now() / 1000);
+// D1 caps bound parameters at 100 PER query (not SQLite's ~999), so size each
+// multi-row INSERT to stay safely under that. e.g. 8-col friends -> 11 rows/stmt.
 function chunk(rows, colsLen) {
-    const per = Math.max(1, Math.floor(900 / colsLen));
+    const per = Math.max(1, Math.floor(90 / colsLen));
     const out = [];
     for (let i = 0; i < rows.length; i += per) out.push(rows.slice(i, i + per));
     return out;
@@ -118,7 +120,9 @@ async function saveFriends(accountSteamID, friends) {
     const cols = ['account_steam_id', 'friend_steam_id', 'friend_name', 'friend_level', 'added_at', 'relationship', 'created_at', 'updated_at'];
     const rows = friends.map((f) => ([accountSteamID, f.steam_id, f.name ?? null, f.level ?? null, f.added_at ?? null, f.relationship ?? null, ts, ts]));
     const tuple = `(${cols.map(() => '?').join(', ')})`;
-    for (const c of chunk(rows, cols.length)) {
+    // Independent INSERT..ON CONFLICT rows — run the chunks concurrently to cut
+    // the per-account wall-clock (a scan otherwise waits on ~18 serial POSTs).
+    await Promise.all(chunk(rows, cols.length).map((c) => {
         const sql = `INSERT INTO friends (${cols.join(', ')}) VALUES ${c.map(() => tuple).join(', ')} `
             + 'ON CONFLICT(account_steam_id, friend_steam_id) DO UPDATE SET '
             + '  friend_name = COALESCE(excluded.friend_name, friends.friend_name),'
@@ -126,8 +130,8 @@ async function saveFriends(accountSteamID, friends) {
             + '  added_at = COALESCE(excluded.added_at, friends.added_at),'
             + '  relationship = COALESCE(excluded.relationship, friends.relationship),'
             + '  updated_at = excluded.updated_at';
-        await d1n.d1run(sql, c.flat());
-    }
+        return d1n.d1run(sql, c.flat());
+    }));
 }
 
 // --- licenses (+ apps): replace this account's set --------------------------
@@ -136,21 +140,22 @@ async function saveLicenses(accountSteamID, licenses) {
     if (USE_WORKER) return wcall('saveLicenses', { accountSteamID, licenses });
     if (!USE_D1) return L().saveLicenses(accountSteamID, licenses);
     const ts = now();
-    await d1n.d1run('DELETE FROM license_apps WHERE account_steam_id = ?', [accountSteamID]);
-    await d1n.d1run('DELETE FROM licenses WHERE account_steam_id = ?', [accountSteamID]);
+    // Deletes must land before the inserts; the insert chunks are independent.
+    await Promise.all([
+        d1n.d1run('DELETE FROM license_apps WHERE account_steam_id = ?', [accountSteamID]),
+        d1n.d1run('DELETE FROM licenses WHERE account_steam_id = ?', [accountSteamID]),
+    ]);
     const licRows = licenses.map((l) => [accountSteamID, l.package_id, l.package_name ?? null, l.payment_method ?? null, l.license_type ?? null, l.purchased_at ?? null, l.territory_code ?? null, ts, ts]);
     const licCols = ['account_steam_id', 'package_id', 'package_name', 'payment_method', 'license_type', 'purchased_at', 'territory_code', 'created_at', 'updated_at'];
-    if (licRows.length) {
-        const t = `(${licCols.map(() => '?').join(', ')})`;
-        for (const c of chunk(licRows, licCols.length)) await d1n.d1run(`INSERT OR REPLACE INTO licenses (${licCols.join(', ')}) VALUES ${c.map(() => t).join(', ')}`, c.flat());
-    }
     const appRows = [];
     for (const l of licenses) for (const a of (l.apps || [])) appRows.push([accountSteamID, l.package_id, a.app_id, a.app_name ?? null, ts, ts]);
     const appCols = ['account_steam_id', 'package_id', 'app_id', 'app_name', 'created_at', 'updated_at'];
-    if (appRows.length) {
-        const t = `(${appCols.map(() => '?').join(', ')})`;
-        for (const c of chunk(appRows, appCols.length)) await d1n.d1run(`INSERT OR REPLACE INTO license_apps (${appCols.join(', ')}) VALUES ${c.map(() => t).join(', ')}`, c.flat());
-    }
+    const licT = `(${licCols.map(() => '?').join(', ')})`;
+    const appT = `(${appCols.map(() => '?').join(', ')})`;
+    await Promise.all([
+        ...chunk(licRows, licCols.length).map((c) => d1n.d1run(`INSERT OR REPLACE INTO licenses (${licCols.join(', ')}) VALUES ${c.map(() => licT).join(', ')}`, c.flat())),
+        ...chunk(appRows, appCols.length).map((c) => d1n.d1run(`INSERT OR REPLACE INTO license_apps (${appCols.join(', ')}) VALUES ${c.map(() => appT).join(', ')}`, c.flat())),
+    ]);
 }
 
 // --- game playtime: replace this account's snapshot -------------------------
@@ -194,12 +199,10 @@ async function saveSentGifts(accountSteamID, gifts) {
     if (!USE_D1) return L().saveSentGifts(accountSteamID, gifts);
     const ts = now();
     await d1n.d1run('DELETE FROM sent_gifts WHERE account_steam_id = ?', [accountSteamID]);
-    for (const g of gifts) {
-        await d1n.d1run(
-            'INSERT OR REPLACE INTO sent_gifts (gift_id, account_steam_id, recipient_steam_id, recipient_name, item_name, detail, sent_at, status, store_url, scanned_at, created_at, updated_at) '
-            + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [g.gift_id, accountSteamID, g.recipient_steam_id ?? null, g.recipient_name ?? null, g.item_name ?? null, g.detail ?? null, parseGiftedAt(g.sent_at), g.status ?? null, g.store_url ?? null, ts, ts, ts]);
-    }
+    const cols = ['gift_id', 'account_steam_id', 'recipient_steam_id', 'recipient_name', 'item_name', 'detail', 'sent_at', 'status', 'store_url', 'scanned_at', 'created_at', 'updated_at'];
+    const rows = gifts.map((g) => [g.gift_id, accountSteamID, g.recipient_steam_id ?? null, g.recipient_name ?? null, g.item_name ?? null, g.detail ?? null, parseGiftedAt(g.sent_at), g.status ?? null, g.store_url ?? null, ts, ts, ts]);
+    const t = `(${cols.map(() => '?').join(', ')})`;
+    await Promise.all(chunk(rows, cols.length).map((c) => d1n.d1run(`INSERT OR REPLACE INTO sent_gifts (${cols.join(', ')}) VALUES ${c.map(() => t).join(', ')}`, c.flat())));
 }
 
 // reconcile for the sent-gift sync: prune gift_ids no longer live, upsert live.
@@ -224,13 +227,15 @@ async function reconcileSentGifts(accountSteamID, liveGifts) {
     const live = new Set(liveGifts.map((g) => g.gift_id));
     const existing = (await d1n.d1all('SELECT gift_id FROM sent_gifts WHERE account_steam_id = ?', [accountSteamID])).map((r) => r.gift_id);
     const deleted = existing.filter((id) => !live.has(id));
-    for (const id of deleted) await d1n.d1run('DELETE FROM sent_gifts WHERE account_steam_id = ? AND gift_id = ?', [accountSteamID, id]);
-    for (const g of liveGifts) {
-        await d1n.d1run(
-            'INSERT OR REPLACE INTO sent_gifts (gift_id, account_steam_id, recipient_steam_id, recipient_name, item_name, detail, sent_at, status, store_url, scanned_at, created_at, updated_at) '
-            + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [g.gift_id, accountSteamID, g.recipient_steam_id ?? null, g.recipient_name ?? null, g.item_name ?? null, g.detail ?? null, parseGiftedAt(g.sent_at), g.status ?? null, g.store_url ?? null, ts, ts, ts]);
-    }
+    // Deleted ids and live ids are disjoint, so the prune and the upsert can run
+    // concurrently. Batch the deletes into IN(...) chunks and the inserts multi-row.
+    const cols = ['gift_id', 'account_steam_id', 'recipient_steam_id', 'recipient_name', 'item_name', 'detail', 'sent_at', 'status', 'store_url', 'scanned_at', 'created_at', 'updated_at'];
+    const rows = liveGifts.map((g) => [g.gift_id, accountSteamID, g.recipient_steam_id ?? null, g.recipient_name ?? null, g.item_name ?? null, g.detail ?? null, parseGiftedAt(g.sent_at), g.status ?? null, g.store_url ?? null, ts, ts, ts]);
+    const t = `(${cols.map(() => '?').join(', ')})`;
+    await Promise.all([
+        ...chunk(deleted, 1).map((ids) => d1n.d1run(`DELETE FROM sent_gifts WHERE account_steam_id = ? AND gift_id IN (${ids.map(() => '?').join(', ')})`, [accountSteamID, ...ids])),
+        ...chunk(rows, cols.length).map((c) => d1n.d1run(`INSERT OR REPLACE INTO sent_gifts (${cols.join(', ')}) VALUES ${c.map(() => t).join(', ')}`, c.flat())),
+    ]);
     return { kept: liveGifts.length, deleted };
 }
 
@@ -243,7 +248,9 @@ async function removeFriendRows(accountSteamID, friendSteamIDs) {
         L().db.transaction(() => { for (const id of friendSteamIDs) del.run(accountSteamID, id); })();
         return;
     }
-    for (const id of friendSteamIDs) await d1n.d1run('DELETE FROM friends WHERE account_steam_id = ? AND friend_steam_id = ?', [accountSteamID, id]);
+    // Batch into IN(...) chunks (stay under D1's 100-param cap incl. the account id).
+    await Promise.all(chunk(friendSteamIDs, 1).map((ids) =>
+        d1n.d1run(`DELETE FROM friends WHERE account_steam_id = ? AND friend_steam_id IN (${ids.map(() => '?').join(', ')})`, [accountSteamID, ...ids])));
 }
 
 // --- small reads the job endpoints need -------------------------------------

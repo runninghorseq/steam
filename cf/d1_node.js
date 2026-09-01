@@ -12,6 +12,11 @@
 
 const https = require('https');
 
+// Reuse TLS connections across the many D1 calls a single scan makes — without
+// keep-alive each call pays a fresh TCP+TLS handshake (~100ms). maxSockets bounds
+// how many run concurrently (store.js fires chunks with Promise.all).
+const agent = new https.Agent({ keepAlive: true, maxSockets: 8 });
+
 // Trim whitespace/CR and strip surrounding quotes so a stray char in the id
 // can't land in the request path (ERR_UNESCAPED_CHARACTERS).
 const clean = (v) => (v || '').trim().replace(/^["']|["']$/g, '');
@@ -29,6 +34,7 @@ function d1(sql, params = []) {
             host: 'api.cloudflare.com',
             path: `/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${CF_D1_DATABASE_ID}/query`,
             method: 'POST',
+            agent,
             headers: {
                 Authorization: `Bearer ${CF_API_TOKEN}`,
                 'Content-Type': 'application/json',
@@ -60,7 +66,7 @@ async function mirrorAccountTable(table, accountCol, accountSteamID, rows, { log
             const cols = Object.keys(rows[0]);
             // Multi-row INSERT in chunks to keep bound params < ~900 (SQLite cap)
             // and cut the number of HTTP round-trips (friends can be hundreds).
-            const perChunk = Math.max(1, Math.floor(900 / cols.length));
+            const perChunk = Math.max(1, Math.floor(90 / cols.length)); // D1 caps bound params at 100/query
             const tuple = `(${cols.map(() => '?').join(', ')})`;
             for (let i = 0; i < rows.length; i += perChunk) {
                 const chunk = rows.slice(i, i + perChunk);
