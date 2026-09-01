@@ -20,7 +20,7 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const SteamUser = require('steam-user');
-const { db, setAccountLoan, addAccountStub } = require('./db');
+const { db, setAccountLoan, addAccountStub, updateCredentials, saveRefreshToken, clearRefreshToken } = require('./db');
 const store = require('./store');
 const { scanAccount } = require('./single');
 const { parseSteamAccounts } = require('./multi_scan');
@@ -150,16 +150,17 @@ function jobView(job, withLines) {
     return v;
 }
 
-async function runScanJob(job, accounts, timeout) {
+async function runScanJob(job, accounts, timeout, opts = {}) {
+    const { idOnly = false } = opts;
     job.status = 'running';
     job.started_at = now();
-    jobLog(job, `Scanning ${accounts.length} account(s), ${timeout}ms timeout each, sequential.`);
+    jobLog(job, `${idOnly ? 'Logging in for SteamID only' : 'Scanning'} ${accounts.length} account(s), ${timeout}ms timeout each, sequential.`);
     for (let i = 0; i < accounts.length; i++) {
         const acc = accounts[i];
         jobLog(job, `>> [${i + 1}/${accounts.length}] ${acc.username}`);
         let res;
         try {
-            res = await scanAccount(acc, { timeout, log: (...a) => jobLog(job, a.join(' ')) });
+            res = await scanAccount(acc, { timeout, idOnly, log: (...a) => jobLog(job, a.join(' ')) });
         } catch (err) {
             res = { ok: false, account: acc, reason: err.message };
         }
@@ -352,7 +353,7 @@ const now = () => Math.floor(Date.now() / 1000);
 const ACCOUNT_COLS = `
     a.steam_id, a.account_name, a.persona, a.country, a.email,
     a.wallet_currency, a.wallet_balance_cents, a.steam_level, a.steam_points,
-    a.loan_id, a.skip_wallet, a.source, a.scanned_at,
+    a.loan_id, a.skip_wallet, a.source, a.email_token_refreshed_at, a.scanned_at,
     (SELECT COUNT(*) FROM auth_tokens t WHERE lower(t.account_name) = lower(a.account_name)) AS has_token,
     (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id) AS friend_count,
     (SELECT COUNT(*) FROM sent_gifts s WHERE s.account_steam_id = a.steam_id) AS sent_gift_count,
@@ -378,7 +379,7 @@ const SORTABLE = {
     scanned: 'a.scanned_at'
 };
 
-function listAccounts({ q, sort, dir, filter, currency, walletMin, walletMax }) {
+function listAccounts({ q, sort, dir, filter, currency, walletMin, walletMax, page, per }) {
     const where = [];
     const params = {};
     if (q) {
@@ -400,17 +401,29 @@ function listAccounts({ q, sort, dir, filter, currency, walletMin, walletMax }) 
 
     const orderCol = SORTABLE[sort] || SORTABLE.account_name;
     const orderDir = String(dir).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+    const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
 
-    return db.prepare(`
-        SELECT ${ACCOUNT_COLS}
-        FROM accounts a
-        ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-        ORDER BY ${orderCol} ${orderDir}
-    `).all(params);
+    // Backward compatible: without a `page`, return the full array (wallet_skip.js
+    // and other callers rely on that). With `page`, return one page + the total.
+    if (page == null) {
+        return db.prepare(`SELECT ${ACCOUNT_COLS} FROM accounts a ${whereSql} ORDER BY ${orderCol} ${orderDir}`).all(params);
+    }
+    const perN = Math.min(Math.max(1, per || 50), 500);
+    const total = db.prepare(`SELECT COUNT(*) AS c FROM accounts a ${whereSql}`).get(params).c;
+    const pages = Math.max(1, Math.ceil(total / perN));
+    const pageN = Math.min(Math.max(1, page), pages);
+    const rows = db.prepare(`SELECT ${ACCOUNT_COLS} FROM accounts a ${whereSql} ORDER BY ${orderCol} ${orderDir} LIMIT @_per OFFSET @_off`)
+        .all({ ...params, _per: perN, _off: (pageN - 1) * perN });
+    return { rows, total, page: pageN, per: perN, pages };
 }
 
 function accountDetail(steamID) {
-    const account = db.prepare(`SELECT ${ACCOUNT_COLS} FROM accounts a WHERE a.steam_id = ?`).get(steamID);
+    // Detail carries the managed credentials + raw refresh token; the list
+    // (ACCOUNT_COLS) does not, so secrets ship only for a single account.
+    const account = db.prepare(
+        `SELECT ${ACCOUNT_COLS}, a.email_password, a.steam_password, a.email_refresh_token, a.email_client_id,
+                (SELECT refresh_token FROM auth_tokens t WHERE lower(t.account_name) = lower(a.account_name)) AS refresh_token
+         FROM accounts a WHERE a.steam_id = ?`).get(steamID);
     if (!account) return null;
     return {
         account,
@@ -557,14 +570,15 @@ async function handleAPI(req, res, url) {
     if (method === 'GET' && p === '/api/summary') return sendJSON(res, 200, summary());
 
     if (method === 'GET' && p === '/api/accounts') {
+        const num = (k) => url.searchParams.get(k) !== null && url.searchParams.get(k) !== '' ? Number(url.searchParams.get(k)) : null;
         return sendJSON(res, 200, listAccounts({
             q: url.searchParams.get('q') || '',
             sort: url.searchParams.get('sort') || 'account_name',
             dir: url.searchParams.get('dir') || 'asc',
             filter: url.searchParams.get('filter') || '',
             currency: url.searchParams.get('currency') || '',
-            walletMin: url.searchParams.get('wallet_min') !== null && url.searchParams.get('wallet_min') !== '' ? Number(url.searchParams.get('wallet_min')) : null,
-            walletMax: url.searchParams.get('wallet_max') !== null && url.searchParams.get('wallet_max') !== '' ? Number(url.searchParams.get('wallet_max')) : null
+            walletMin: num('wallet_min'), walletMax: num('wallet_max'),
+            page: num('page'), per: num('per')
         }));
     }
 
@@ -694,6 +708,20 @@ async function handleAPI(req, res, url) {
             : sendJSON(res, 404, { error: 'account not found' });
     }
 
+    // Manage credentials: email / email_password / steam_password + refresh token.
+    m = /^\/api\/accounts\/(\d{17})\/credentials$/.exec(p);
+    if (method === 'POST' && m) {
+        const b = await readBody(req);
+        const acc = db.prepare('SELECT account_name FROM accounts WHERE steam_id = ?').get(m[1]);
+        if (!acc) return sendJSON(res, 404, { error: 'account not found' });
+        updateCredentials(m[1], b);
+        if ('refresh_token' in b && acc.account_name) {
+            if (b.refresh_token) saveRefreshToken(acc.account_name, b.refresh_token);
+            else clearRefreshToken(acc.account_name);
+        }
+        return sendJSON(res, 200, { steam_id: m[1], updated: true });
+    }
+
     m = /^\/api\/accounts\/(\d{17})\/unlink-loan$/.exec(p);
     if (method === 'POST' && m) {
         const changes = setAccountLoan(m[1], null);
@@ -725,50 +753,23 @@ async function handleAPI(req, res, url) {
         });
     }
 
-    if (method === 'GET' && p === '/api/loans') {
-        return sendJSON(res, 200, db.prepare('SELECT * FROM account_loans ORDER BY returned_at IS NOT NULL, due_at ASC').all());
-    }
-
-    if (method === 'POST' && p === '/api/loans') {
-        const { account_name, borrower, days, note } = await readBody(req);
-        const acc = db.prepare('SELECT steam_id, account_name FROM accounts WHERE lower(account_name) = lower(?)').get(account_name || '');
-        if (!acc) return sendJSON(res, 400, { error: `no account named '${account_name}'` });
-        const open = db.prepare('SELECT id FROM account_loans WHERE lower(account_name) = lower(?) AND returned_at IS NULL').get(acc.account_name);
-        if (open) return sendJSON(res, 409, { error: `already lent (loan #${open.id})` });
-
-        const d = Number(days) > 0 ? Number(days) : 1;
-        const lent_at = now();
-        const info = db.prepare(`
-            INSERT INTO account_loans (account_name, account_steam_id, borrower, note, lent_at, due_at, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(acc.account_name, acc.steam_id, borrower || null, note || null, lent_at, lent_at + Math.round(d * 86400), lent_at, lent_at);
-        // Same freeze lend_account.js applies: wallet/level stop being overwritten.
-        setAccountLoan(acc.steam_id, info.lastInsertRowid);
-        return sendJSON(res, 201, db.prepare('SELECT * FROM account_loans WHERE id = ?').get(info.lastInsertRowid));
-    }
-
-    m = /^\/api\/loans\/(\d+)\/return$/.exec(p);
-    if (method === 'POST' && m) {
-        const changes = db.prepare('UPDATE account_loans SET returned_at = ?, updated_at = ? WHERE id = ? AND returned_at IS NULL')
-            .run(now(), now(), m[1]).changes;
-        return changes
-            ? sendJSON(res, 200, db.prepare('SELECT * FROM account_loans WHERE id = ?').get(m[1]))
-            : sendJSON(res, 404, { error: 'no open loan with that id' });
-    }
-
-    m = /^\/api\/loans\/(\d+)$/.exec(p);
-    if (method === 'PATCH' && m) {
-        const { note } = await readBody(req);
-        db.prepare('UPDATE account_loans SET note = ?, updated_at = ? WHERE id = ?').run(note ?? null, now(), m[1]);
-        return sendJSON(res, 200, db.prepare('SELECT * FROM account_loans WHERE id = ?').get(m[1]));
-    }
-
     if (method === 'GET' && p === '/api/gifts/sent') {
         return sendJSON(res, 200, db.prepare(`
             SELECT s.*, a.account_name FROM sent_gifts s
             LEFT JOIN accounts a ON a.steam_id = s.account_steam_id
             ORDER BY s.sent_at IS NULL, s.sent_at ASC
         `).all());
+    }
+
+    // Admin: delete sent-gift rows by gift_id (DB-only; still-pending gifts return
+    // on the next sync).
+    if (method === 'POST' && p === '/api/gifts/sent/delete') {
+        const b = await readBody(req);
+        const ids = Array.isArray(b.gift_ids) ? b.gift_ids.map(String).filter(Boolean) : [];
+        if (!ids.length) return sendJSON(res, 400, { error: 'gift_ids[] required' });
+        const del = db.prepare('DELETE FROM sent_gifts WHERE gift_id = ?');
+        const deleted = db.transaction(() => ids.reduce((n, id) => n + del.run(id).changes, 0))();
+        return sendJSON(res, 200, { deleted });
     }
 
     if (method === 'POST' && p === '/api/gifts/sync') {
@@ -801,14 +802,6 @@ async function handleAPI(req, res, url) {
         const job = makeJob('sync', { total: accounts.length, usernames: accounts.map((a) => a.username) });
         enqueueSteamJob(job, () => runSyncJob(job, accounts, to, conc));
         return sendJSON(res, 202, jobView(job, false));
-    }
-
-    if (method === 'GET' && p === '/api/gifts/pending') {
-        return sendJSON(res, 200, db.prepare(`
-            SELECT g.*, a.account_name FROM pending_gifts g
-            LEFT JOIN accounts a ON a.steam_id = g.account_steam_id
-            ORDER BY g.scanned_at DESC
-        `).all());
     }
 
     if (method === 'GET' && p === '/api/friends') {
@@ -846,7 +839,7 @@ async function handleAPI(req, res, url) {
     }
 
     if (method === 'POST' && p === '/api/scan') {
-        const { text, timeout, rescan, source, addOnly } = await readBody(req);
+        const { text, timeout, rescan, source, addOnly, idOnly } = await readBody(req);
         if (!text || !String(text).trim()) return sendJSON(res, 400, { error: 'no account lines provided' });
 
         // Reuse multi_scan's parser via a short-lived temp file, so upload parsing
@@ -926,15 +919,54 @@ async function handleAPI(req, res, url) {
             });
         }
 
-        const to = Number(timeout) >= 10000 ? Number(timeout) : 60000;
-        const job = makeJob('scan', {
+        // "SteamID only" logins are quick (no community fetch), so a shorter default.
+        const to = Number(timeout) >= 10000 ? Number(timeout) : (idOnly ? 30000 : 60000);
+        const job = makeJob(idOnly ? 'scan-id' : 'scan', {
             total: accounts.length, usernames: accounts.map((a) => a.username),
             skipped_existing: skippedExisting, skipped_failed: skippedFailed
         });
         if (skippedFailed.length) jobLog(job, `Skipped ${skippedFailed.length} failed/invalid line(s): ${skippedFailed.join(', ')}`);
         if (skippedExisting.length) jobLog(job, `Skipped ${skippedExisting.length} already in DB: ${skippedExisting.join(', ')}`);
-        enqueueSteamJob(job, () => runScanJob(job, accounts, to));
+        enqueueSteamJob(job, () => runScanJob(job, accounts, to, { idOnly: !!idOnly }));
         return sendJSON(res, 202, jobView(job, false));
+    }
+
+    // Attach/refresh mailbox OAuth tokens on accounts that already exist. Each
+    // line is `mail|pass|refresh_token|app_id`; the account is matched by its
+    // stored email and only the four email_* columns are touched (never wallet,
+    // level, friends). updateCredentials() stamps email_token_refreshed_at and
+    // mirrors the row to D1. No Steam login, so this runs synchronously.
+    if (method === 'POST' && p === '/api/email-tokens') {
+        const { text } = await readBody(req);
+        if (!text || !String(text).trim()) return sendJSON(res, 400, { error: 'no lines provided' });
+        const lines = String(text).split('\n').map((l) => l.trim()).filter(Boolean);
+        const findByEmail = db.prepare('SELECT steam_id, account_name FROM accounts WHERE lower(email) = lower(?)');
+        const updated = [], notFound = [], invalid = [];
+        const tx = db.transaction(() => {
+            for (const line of lines) {
+                // refresh_token may itself contain '|', so app_id is the LAST field
+                // and the token is everything between pass and app_id.
+                const parts = line.split('|');
+                const email = (parts[0] || '').trim();
+                const pass = (parts[1] || '').trim();
+                const app_id = parts.length >= 4 ? (parts[parts.length - 1] || '').trim() : '';
+                const refresh_token = parts.length >= 4 ? parts.slice(2, -1).join('|').trim() : '';
+                if (parts.length < 4 || !/^[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}$/.test(email) || !refresh_token) {
+                    invalid.push(line.slice(0, 60));
+                    continue;
+                }
+                const acc = findByEmail.get(email);
+                if (!acc) { notFound.push(email); continue; }
+                updateCredentials(acc.steam_id, {
+                    email_password: pass || null,
+                    email_refresh_token: refresh_token,
+                    email_client_id: app_id || null,
+                });
+                updated.push(acc.account_name || email);
+            }
+        });
+        tx();
+        return sendJSON(res, 200, { updated: updated.length, updated_names: updated, not_found: notFound, invalid });
     }
 
     if (method === 'GET' && p === '/api/jobs') {
@@ -1057,28 +1089,6 @@ async function handleAPI(req, res, url) {
               AND friend_name IS NOT NULL AND trim(friend_name) <> ''
         `).all(start, end);
         return sendJSON(res, 200, { sent, gifted });
-    }
-
-    // --- feedback / star reviews ---------------------------------------------
-    if (method === 'GET' && p === '/api/feedback') {
-        const rows = db.prepare('SELECT id, rating, comment, author, created_at FROM feedback ORDER BY created_at DESC, id DESC LIMIT 500').all();
-        const agg = db.prepare('SELECT COUNT(*) n, AVG(rating) avg FROM feedback').get();
-        const dist = {};
-        for (let i = 1; i <= 5; i++) dist[i] = 0;
-        db.prepare('SELECT rating, COUNT(*) c FROM feedback GROUP BY rating').all().forEach((r) => { dist[r.rating] = r.c; });
-        return sendJSON(res, 200, { reviews: rows, count: agg.n, average: agg.avg, distribution: dist });
-    }
-
-    if (method === 'POST' && p === '/api/feedback') {
-        const b = await readBody(req);
-        const rating = Number(b.rating);
-        if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
-            return sendJSON(res, 400, { error: 'rating must be an integer from 1 to 5' });
-        }
-        const comment = b.comment ? String(b.comment).slice(0, 4000).trim() || null : null;
-        const author = b.author ? String(b.author).slice(0, 120).trim() || null : null;
-        const info = db.prepare('INSERT INTO feedback (rating, comment, author) VALUES (?, ?, ?)').run(rating, comment, author);
-        return sendJSON(res, 201, db.prepare('SELECT id, rating, comment, author, created_at FROM feedback WHERE id = ?').get(info.lastInsertRowid));
     }
 
     return sendJSON(res, 404, { error: `no route for ${method} ${p}` });

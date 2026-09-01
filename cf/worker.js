@@ -86,7 +86,7 @@ const rowsOf = async (stmt) => (await stmt.all()).results;
 const ACCOUNT_COLS = `
     a.steam_id, a.account_name, a.persona, a.country, a.email,
     a.wallet_currency, a.wallet_balance_cents, a.steam_level, a.steam_points,
-    a.loan_id, a.skip_wallet, a.source, a.scanned_at,
+    a.loan_id, a.skip_wallet, a.source, a.email_token_refreshed_at, a.scanned_at,
     (SELECT COUNT(*) FROM auth_tokens t WHERE lower(t.account_name) = lower(a.account_name)) AS has_token,
     (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id) AS friend_count,
     (SELECT COUNT(*) FROM sent_gifts s WHERE s.account_steam_id = a.steam_id) AS sent_gift_count,
@@ -102,7 +102,7 @@ const SORTABLE = {
     pending: 'pending_gift_count', licenses: 'license_count', scanned: 'a.scanned_at',
 };
 
-async function listAccounts(env, { q, sort, dir, filter }) {
+async function listAccounts(env, { q, sort, dir, filter, currency, walletMin, walletMax, page, per }) {
     const where = [];
     const params = [];
     if (q) { where.push('(a.account_name LIKE ? OR a.persona LIKE ? OR a.email LIKE ? OR a.steam_id LIKE ?)'); const like = `%${q}%`; params.push(like, like, like, like); }
@@ -111,14 +111,35 @@ async function listAccounts(env, { q, sort, dir, filter }) {
     if (filter === 'tracked') where.push('a.skip_wallet = 0');
     if (filter === 'no_token') where.push('(a.account_name IS NULL OR lower(a.account_name) NOT IN (SELECT lower(account_name) FROM auth_tokens))');
     if (filter === 'funded') where.push('a.wallet_balance_cents > 0');
+    // Wallet filters: amounts arrive in major units, compared in cents; currency
+    // is an exact ECurrencyCode match (only meaningful together with an amount).
+    if (currency) { where.push('a.wallet_currency = ?'); params.push(currency); }
+    if (walletMin != null) { where.push('a.wallet_balance_cents >= ?'); params.push(Math.round(walletMin * 100)); }
+    if (walletMax != null) { where.push('a.wallet_balance_cents <= ?'); params.push(Math.round(walletMax * 100)); }
     const orderCol = SORTABLE[sort] || SORTABLE.account_name;
     const orderDir = String(dir).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
-    const sql = `SELECT ${ACCOUNT_COLS} FROM accounts a ${where.length ? 'WHERE ' + where.join(' AND ') : ''} ORDER BY ${orderCol} ${orderDir}`;
-    return rowsOf(env.DB.prepare(sql).bind(...params));
+    const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+
+    // Backward compatible: no `page` -> full array (wallet_skip.js et al. rely on
+    // that). With `page` -> one page + the total count.
+    if (page == null) {
+        return rowsOf(env.DB.prepare(`SELECT ${ACCOUNT_COLS} FROM accounts a ${whereSql} ORDER BY ${orderCol} ${orderDir}`).bind(...params));
+    }
+    const perN = Math.min(Math.max(1, per || 50), 500);
+    const total = (await env.DB.prepare(`SELECT COUNT(*) AS c FROM accounts a ${whereSql}`).bind(...params).first()).c;
+    const pages = Math.max(1, Math.ceil(total / perN));
+    const pageN = Math.min(Math.max(1, page), pages);
+    const rows = await rowsOf(env.DB.prepare(`SELECT ${ACCOUNT_COLS} FROM accounts a ${whereSql} ORDER BY ${orderCol} ${orderDir} LIMIT ? OFFSET ?`).bind(...params, perN, (pageN - 1) * perN));
+    return { rows, total, page: pageN, per: perN, pages };
 }
 
 async function accountDetail(env, steamID) {
-    const account = await env.DB.prepare(`SELECT ${ACCOUNT_COLS} FROM accounts a WHERE a.steam_id = ?`).bind(steamID).first();
+    // Detail includes the managed credentials + the raw refresh token; the list
+    // (ACCOUNT_COLS) deliberately does not, so secrets ship only for one account.
+    const account = await env.DB.prepare(
+        `SELECT ${ACCOUNT_COLS}, a.email_password, a.steam_password, a.email_refresh_token, a.email_client_id, `
+        + '(SELECT refresh_token FROM auth_tokens t WHERE lower(t.account_name) = lower(a.account_name)) AS refresh_token '
+        + 'FROM accounts a WHERE a.steam_id = ?').bind(steamID).first();
     if (!account) return null;
     const q = (sql) => rowsOf(env.DB.prepare(sql).bind(steamID));
     return {
@@ -151,16 +172,19 @@ async function summary(env) {
 
 // --- gift API (ported from gift_api.js, async D1) ---------------------------
 
+// Names are inlined as escaped literals (not bound) — D1 caps bound variables
+// at 100, and the exclude list alone is larger than that.
+const sqlLit = (v) => `'${String(v).replace(/'/g, "''")}'`;
 function excludeNamesClause(alias, excludeNames) {
     const names = (excludeNames || []).map((n) => String(n).trim().toLowerCase()).filter(Boolean);
     if (!names.length) return { sql: '', params: [] };
-    return { sql: `  AND lower(${alias}.friend_name) NOT IN (${names.map(() => '?').join(',')}) `, params: names };
+    return { sql: `  AND lower(${alias}.friend_name) NOT IN (${names.map(sqlLit).join(',')}) `, params: [] };
 }
 function priorityOrderClause(alias, priorityNames) {
     const names = (priorityNames || []).map((n) => String(n).trim().toLowerCase()).filter(Boolean);
     if (!names.length) return { sql: '', params: [] };
-    const whens = names.map((_, i) => `WHEN ? THEN ${i}`).join(' ');
-    return { sql: `CASE lower(${alias}.friend_name) ${whens} ELSE ${names.length} END, `, params: names };
+    const whens = names.map((n, i) => `WHEN ${sqlLit(n)} THEN ${i}`).join(' ');
+    return { sql: `CASE lower(${alias}.friend_name) ${whens} ELSE ${names.length} END, `, params: [] };
 }
 
 async function getOldestFriendNames(env, { account, limit, gameName, game, excludeNames, priorityNames }) {
@@ -274,8 +298,8 @@ async function handleIngest(env, b) {
                 const row = await first('SELECT loan_id FROM accounts WHERE steam_id = ?', p.steam_id);
                 if (row && row.loan_id != null) { p.wallet_currency = null; p.wallet_balance_cents = null; p.steam_level = null; }
             }
-            await run('INSERT INTO accounts (steam_id, account_name, persona, country, email, wallet_currency, wallet_balance_cents, steam_level, steam_points, source, scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(steam_id) DO UPDATE SET account_name = COALESCE(excluded.account_name, accounts.account_name), persona = COALESCE(excluded.persona, accounts.persona), country = COALESCE(excluded.country, accounts.country), email = COALESCE(excluded.email, accounts.email), wallet_currency = COALESCE(excluded.wallet_currency, accounts.wallet_currency), wallet_balance_cents = COALESCE(excluded.wallet_balance_cents, accounts.wallet_balance_cents), steam_level = COALESCE(excluded.steam_level, accounts.steam_level), steam_points = COALESCE(excluded.steam_points, accounts.steam_points), source = COALESCE(excluded.source, accounts.source), scanned_at = excluded.scanned_at, updated_at = excluded.updated_at',
-                p.steam_id, p.account_name ?? null, p.persona ?? null, p.country ?? null, p.email ?? null, p.wallet_currency ?? null, p.wallet_balance_cents ?? null, p.steam_level ?? null, p.steam_points ?? null, p.source ?? null, ts, ts, ts);
+            await run('INSERT INTO accounts (steam_id, account_name, persona, country, email, wallet_currency, wallet_balance_cents, steam_level, steam_points, source, steam_password, email_password, scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(steam_id) DO UPDATE SET account_name = COALESCE(excluded.account_name, accounts.account_name), persona = COALESCE(excluded.persona, accounts.persona), country = COALESCE(excluded.country, accounts.country), email = COALESCE(excluded.email, accounts.email), wallet_currency = COALESCE(excluded.wallet_currency, accounts.wallet_currency), wallet_balance_cents = COALESCE(excluded.wallet_balance_cents, accounts.wallet_balance_cents), steam_level = COALESCE(excluded.steam_level, accounts.steam_level), steam_points = COALESCE(excluded.steam_points, accounts.steam_points), source = COALESCE(excluded.source, accounts.source), steam_password = COALESCE(excluded.steam_password, accounts.steam_password), email_password = COALESCE(excluded.email_password, accounts.email_password), scanned_at = excluded.scanned_at, updated_at = excluded.updated_at',
+                p.steam_id, p.account_name ?? null, p.persona ?? null, p.country ?? null, p.email ?? null, p.wallet_currency ?? null, p.wallet_balance_cents ?? null, p.steam_level ?? null, p.steam_points ?? null, p.source ?? null, p.steam_password ?? null, p.email_password ?? null, ts, ts, ts);
             return true;
         }
         case 'saveFriends': {
@@ -378,7 +402,13 @@ async function handleApi(req, env, url) {
     if (method === 'GET' && p === '/api/summary') return json(await summary(env));
 
     if (method === 'GET' && p === '/api/accounts') {
-        return json(await listAccounts(env, { q: url.searchParams.get('q') || '', sort: url.searchParams.get('sort') || 'account_name', dir: url.searchParams.get('dir') || 'asc', filter: url.searchParams.get('filter') || '' }));
+        const numParam = (k) => { const v = url.searchParams.get(k); return v !== null && v !== '' ? Number(v) : null; };
+        return json(await listAccounts(env, {
+            q: url.searchParams.get('q') || '', sort: url.searchParams.get('sort') || 'account_name',
+            dir: url.searchParams.get('dir') || 'asc', filter: url.searchParams.get('filter') || '',
+            currency: url.searchParams.get('currency') || '', walletMin: numParam('wallet_min'), walletMax: numParam('wallet_max'),
+            page: numParam('page'), per: numParam('per'),
+        }));
     }
 
     let m = /^\/api\/accounts\/(\d{17})$/.exec(p);
@@ -416,6 +446,32 @@ async function handleApi(req, env, url) {
         const changes = (await env.DB.prepare('UPDATE accounts SET skip_wallet = ?, updated_at = unixepoch() WHERE steam_id = ?').bind(value ? 1 : 0, m[1]).run()).meta.changes;
         return changes ? json({ steam_id: m[1], skip_wallet: value ? 1 : 0 }) : json({ error: 'account not found' }, 404);
     }
+
+    // Manage credentials: email / email_password / steam_password (accounts) and
+    // the refresh token (auth_tokens). Only the keys present in the body change;
+    // '' clears a field. Direct set (not COALESCE), so edits and clears both apply.
+    m = /^\/api\/accounts\/(\d{17})\/credentials$/.exec(p);
+    if (method === 'POST' && m) {
+        const b = await body();
+        const acc = await env.DB.prepare('SELECT account_name FROM accounts WHERE steam_id = ?').bind(m[1]).first();
+        if (!acc) return json({ error: 'account not found' }, 404);
+        const cols = ['email', 'email_password', 'steam_password', 'email_refresh_token', 'email_client_id'].filter((k) => k in b);
+        const vals = cols.map((k) => (b[k] === '' ? null : (b[k] ?? null)));
+        const assign = cols.map((k) => `${k} = ?`);
+        // Stamp the mailbox-token rotation time on a new token or an explicit mark.
+        if ((cols.includes('email_refresh_token') && b.email_refresh_token) || b.stamp_refreshed) {
+            assign.push('email_token_refreshed_at = unixepoch()');
+        }
+        if (assign.length) {
+            await env.DB.prepare(`UPDATE accounts SET ${assign.join(', ')}, updated_at = unixepoch() WHERE steam_id = ?`).bind(...vals, m[1]).run();
+        }
+        if ('refresh_token' in b && acc.account_name) {
+            const ts = Math.floor(Date.now() / 1000);
+            if (b.refresh_token) await env.DB.prepare('INSERT INTO auth_tokens (account_name, refresh_token, created_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(account_name) DO UPDATE SET refresh_token = excluded.refresh_token, updated_at = excluded.updated_at').bind(acc.account_name, b.refresh_token, ts, ts).run();
+            else await env.DB.prepare('DELETE FROM auth_tokens WHERE account_name = ?').bind(acc.account_name).run();
+        }
+        return json({ steam_id: m[1], updated: true });
+    }
     m = /^\/api\/accounts\/(\d{17})\/unlink-loan$/.exec(p);
     if (method === 'POST' && m) {
         const changes = (await env.DB.prepare('UPDATE accounts SET loan_id = NULL, updated_at = unixepoch() WHERE steam_id = ?').bind(m[1]).run()).meta.changes;
@@ -425,34 +481,20 @@ async function handleApi(req, env, url) {
     if (method === 'POST' && (/^\/api\/accounts\/\d{17}\/(run|login|remove-friends)$/.test(p))) return proxyToBox(req, env, url);
     if (/^\/api\/accounts\/login\//.test(p)) return proxyToBox(req, env, url);
 
-    if (method === 'GET' && p === '/api/loans') return json(await rowsOf(env.DB.prepare('SELECT * FROM account_loans ORDER BY returned_at IS NOT NULL, due_at ASC')));
-    if (method === 'POST' && p === '/api/loans') {
-        const { account_name, borrower, days, note } = await body();
-        const acc = await env.DB.prepare('SELECT steam_id, account_name FROM accounts WHERE lower(account_name) = lower(?)').bind(account_name || '').first();
-        if (!acc) return json({ error: `no account named '${account_name}'` }, 400);
-        const open = await env.DB.prepare('SELECT id FROM account_loans WHERE lower(account_name) = lower(?) AND returned_at IS NULL').bind(acc.account_name).first();
-        if (open) return json({ error: `already lent (loan #${open.id})` }, 409);
-        const d = Number(days) > 0 ? Number(days) : 1;
-        const lent_at = now();
-        const ins = await env.DB.prepare('INSERT INTO account_loans (account_name, account_steam_id, borrower, note, lent_at, due_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-            .bind(acc.account_name, acc.steam_id, borrower || null, note || null, lent_at, lent_at + Math.round(d * 86400), lent_at, lent_at).run();
-        await env.DB.prepare('UPDATE accounts SET loan_id = ?, updated_at = unixepoch() WHERE steam_id = ?').bind(ins.meta.last_row_id, acc.steam_id).run();
-        return json(await env.DB.prepare('SELECT * FROM account_loans WHERE id = ?').bind(ins.meta.last_row_id).first(), 201);
-    }
-    m = /^\/api\/loans\/(\d+)\/return$/.exec(p);
-    if (method === 'POST' && m) {
-        const changes = (await env.DB.prepare('UPDATE account_loans SET returned_at = ?, updated_at = ? WHERE id = ? AND returned_at IS NULL').bind(now(), now(), m[1]).run()).meta.changes;
-        return changes ? json(await env.DB.prepare('SELECT * FROM account_loans WHERE id = ?').bind(m[1]).first()) : json({ error: 'no open loan with that id' }, 404);
-    }
-    m = /^\/api\/loans\/(\d+)$/.exec(p);
-    if (method === 'PATCH' && m) {
-        const { note } = await body();
-        await env.DB.prepare('UPDATE account_loans SET note = ?, updated_at = ? WHERE id = ?').bind(note ?? null, now(), m[1]).run();
-        return json(await env.DB.prepare('SELECT * FROM account_loans WHERE id = ?').bind(m[1]).first());
-    }
-
     if (method === 'GET' && p === '/api/gifts/sent') return json(await rowsOf(env.DB.prepare('SELECT s.*, a.account_name FROM sent_gifts s LEFT JOIN accounts a ON a.steam_id = s.account_steam_id ORDER BY s.sent_at IS NULL, s.sent_at ASC')));
-    if (method === 'GET' && p === '/api/gifts/pending') return json(await rowsOf(env.DB.prepare('SELECT g.*, a.account_name FROM pending_gifts g LEFT JOIN accounts a ON a.steam_id = g.account_steam_id ORDER BY g.scanned_at DESC')));
+    // Admin: delete sent-gift rows by gift_id (DB-only cleanup; a live gift that is
+    // still pending on Steam will reappear on the next sync).
+    if (method === 'POST' && p === '/api/gifts/sent/delete') {
+        const b = await body();
+        const ids = Array.isArray(b.gift_ids) ? b.gift_ids.map(String).filter(Boolean) : [];
+        if (!ids.length) return json({ error: 'gift_ids[] required' }, 400);
+        let deleted = 0;
+        for (let i = 0; i < ids.length; i += 90) { // D1 caps bound params at 100/query
+            const c = ids.slice(i, i + 90);
+            deleted += (await env.DB.prepare(`DELETE FROM sent_gifts WHERE gift_id IN (${c.map(() => '?').join(', ')})`).bind(...c).run()).meta.changes;
+        }
+        return json({ deleted });
+    }
     if (method === 'POST' && p === '/api/gifts/sync') return proxyToBox(req, env, url);
 
     if (method === 'GET' && p === '/api/friends') {
@@ -489,6 +531,7 @@ async function handleApi(req, env, url) {
     }
 
     if (method === 'POST' && p === '/api/scan') return proxyToBox(req, env, url);
+    if (method === 'POST' && p === '/api/email-tokens') return proxyToBox(req, env, url); // box updates SQLite + mirrors to D1
     if (method === 'POST' && p === '/api/wallets/refresh') return proxyToBox(req, env, url);
     if (p === '/api/jobs' || /^\/api\/jobs\//.test(p)) return proxyToBox(req, env, url); // job state lives on the box
 
@@ -562,23 +605,6 @@ async function handleApi(req, env, url) {
             }
         }
         return json({ willChange, alreadyCorrect, unmatched, changes, committed: !!b.commit, totalChanges });
-    }
-
-    if (method === 'GET' && p === '/api/feedback') {
-        const reviews = await rowsOf(env.DB.prepare('SELECT id, rating, comment, author, created_at FROM feedback ORDER BY created_at DESC, id DESC LIMIT 500'));
-        const agg = await env.DB.prepare('SELECT COUNT(*) n, AVG(rating) avg FROM feedback').first();
-        const dist = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
-        (await rowsOf(env.DB.prepare('SELECT rating, COUNT(*) c FROM feedback GROUP BY rating'))).forEach((r) => { dist[r.rating] = r.c; });
-        return json({ reviews, count: agg.n, average: agg.avg, distribution: dist });
-    }
-    if (method === 'POST' && p === '/api/feedback') {
-        const b = await body();
-        const rating = Number(b.rating);
-        if (!Number.isInteger(rating) || rating < 1 || rating > 5) return json({ error: 'rating must be an integer from 1 to 5' }, 400);
-        const comment = b.comment ? String(b.comment).slice(0, 4000).trim() || null : null;
-        const author = b.author ? String(b.author).slice(0, 120).trim() || null : null;
-        const r = await env.DB.prepare('INSERT INTO feedback (rating, comment, author, created_at) VALUES (?, ?, ?, ?)').bind(rating, comment, author, now()).run();
-        return json(await env.DB.prepare('SELECT id, rating, comment, author, created_at FROM feedback WHERE id = ?').bind(r.meta.last_row_id).first(), 201);
     }
 
     return json({ error: `no route for ${method} ${p}` }, 404);

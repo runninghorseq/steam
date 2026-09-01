@@ -13,3 +13,5 @@ steam_accounts.db*
 cf/data*.sql
 cf/steam_full.sql
 .*
+# but keep the tracked deploy-token template
+!.env.deploy.example

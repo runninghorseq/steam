@@ -102,7 +102,7 @@ function parseSentGifts(html) {
  * @param {{timeout?: number, log?: Function}} opts
  */
 function scanAccount(account, opts = {}) {
-    const { timeout = 60000, log = console.log } = opts;
+    const { timeout = 60000, log = console.log, idOnly = false } = opts;
     const tag = `[${account.id ?? account.username}]`;
 
     return new Promise((resolve) => {
@@ -179,6 +179,17 @@ function scanAccount(account, opts = {}) {
         client.on('loggedOn', () => {
             steamID = client.steamID.getSteamID64();
             log(`${tag} logged in: ${steamID}`);
+
+            // "SteamID only": we just needed to log in to learn the SteamID64. Save
+            // the id (+ login name / captured password) and finish — no persona,
+            // wallet, friends, licenses, gifts, or the community-page fetch.
+            if (idOnly) {
+                store.saveAccount({ steam_id: steamID, account_name: account.username, source: account.source ?? null, steam_password: account.password ?? null })
+                    .then(() => { log(`${tag} steamID saved`); finish({ ok: true, account, steam_id: steamID }); })
+                    .catch((e) => finish({ ok: false, reason: e.message, account }));
+                return;
+            }
+
             client.setPersona(SteamUser.EPersonaState.Online);
             client.gamesPlayed([]);
 
@@ -208,7 +219,10 @@ function scanAccount(account, opts = {}) {
                 persona: name,
                 // Where this account was imported from (e.g. the uploaded file name),
                 // if the caller supplied one. COALESCE keeps it on later re-scans.
-                source: account.source ?? null
+                source: account.source ?? null,
+                // Capture the login password on the initial (password) scan. Token-based
+                // re-scans have no password, so COALESCE leaves the stored one intact.
+                steam_password: account.password ?? null
             });
             flags.account = true;
             check();
@@ -238,6 +252,7 @@ function scanAccount(account, opts = {}) {
         });
 
         onSafe('friendsList', async () => {
+            if (idOnly) return;
             const apiFriends = await fetchFriendsFromAPI(steamID);
             const apiMap = Object.fromEntries(apiFriends.map(f => [f.steamid, f]));
             const dbFriends = Object.keys(client.myFriends).map(sid => {
@@ -271,6 +286,7 @@ function scanAccount(account, opts = {}) {
         });
 
         onSafe('licenses', async (licenses) => {
+            if (idOnly) return;
             licenses = licenses.filter(l => l.package_id !== 0);
             if (licenses.length === 0) {
                 await store.saveLicenses(steamID, []);
@@ -318,6 +334,7 @@ function scanAccount(account, opts = {}) {
         });
 
         onSafe('webSession', async (sessionID, cookies) => {
+            if (idOnly) return;
             community.setCookies(cookies);
             const url = `https://steamcommunity.com/profiles/${steamID}/inventory/`;
             const { ok, status, data, error } = await fetchCommunityPage(community, url, { log, tag });

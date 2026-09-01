@@ -31,10 +31,25 @@ if (!accountCols.includes('skip_wallet')) {
 if (!accountCols.includes('source')) {
     db.exec('ALTER TABLE accounts ADD COLUMN source TEXT');
 }
+if (!accountCols.includes('steam_password')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN steam_password TEXT');
+}
+if (!accountCols.includes('email_password')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN email_password TEXT');
+}
+if (!accountCols.includes('email_refresh_token')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN email_refresh_token TEXT');
+}
+if (!accountCols.includes('email_client_id')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN email_client_id TEXT');
+}
+if (!accountCols.includes('email_token_refreshed_at')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN email_token_refreshed_at INTEGER');
+}
 
 const upsertAccount = db.prepare(`
-INSERT INTO accounts (steam_id, account_name, persona, country, email, wallet_currency, wallet_balance_cents, steam_level, steam_points, source, scanned_at, created_at, updated_at)
-VALUES (@steam_id, @account_name, @persona, @country, @email, @wallet_currency, @wallet_balance_cents, @steam_level, @steam_points, @source, @scanned_at, @now, @now)
+INSERT INTO accounts (steam_id, account_name, persona, country, email, wallet_currency, wallet_balance_cents, steam_level, steam_points, source, steam_password, email_password, scanned_at, created_at, updated_at)
+VALUES (@steam_id, @account_name, @persona, @country, @email, @wallet_currency, @wallet_balance_cents, @steam_level, @steam_points, @source, @steam_password, @email_password, @scanned_at, @now, @now)
 ON CONFLICT(steam_id) DO UPDATE SET
     account_name = COALESCE(excluded.account_name, accounts.account_name),
     persona = COALESCE(excluded.persona, accounts.persona),
@@ -45,6 +60,8 @@ ON CONFLICT(steam_id) DO UPDATE SET
     wallet_balance_cents = COALESCE(excluded.wallet_balance_cents, accounts.wallet_balance_cents),
     steam_level = COALESCE(excluded.steam_level, accounts.steam_level),
     steam_points = COALESCE(excluded.steam_points, accounts.steam_points),
+    steam_password = COALESCE(excluded.steam_password, accounts.steam_password),
+    email_password = COALESCE(excluded.email_password, accounts.email_password),
     scanned_at = excluded.scanned_at,
     updated_at = excluded.updated_at
 `);
@@ -207,10 +224,33 @@ function saveAccount(partial) {
         steam_level: partial.steam_level ?? null,
         steam_points: partial.steam_points ?? null,
         source: partial.source ?? null,
+        steam_password: partial.steam_password ?? null,
+        email_password: partial.email_password ?? null,
         scanned_at: ts,
         now: ts
     });
     if (mirror.active) mirror.upsert('accounts', db.prepare('SELECT * FROM accounts WHERE steam_id = ?').get(partial.steam_id));
+}
+
+// Directly set the editable credential fields for one account (explicit set, not
+// COALESCE — so a field can be cleared). Only the keys present in `fields` are
+// touched. Returns the number of accounts rows changed.
+const CREDENTIAL_FIELDS = ['email', 'email_password', 'steam_password', 'email_refresh_token', 'email_client_id'];
+function updateCredentials(steamID, fields) {
+    const set = CREDENTIAL_FIELDS.filter((k) => k in fields);
+    const params = { steam_id: steamID };
+    const assign = set.map((k) => { params[k] = fields[k] === '' ? null : (fields[k] ?? null); return `${k} = @${k}`; });
+    // Stamp the rotation time when a new mailbox token is saved, or on an explicit
+    // "mark refreshed" (stamp_refreshed) with no field change.
+    if ((set.includes('email_refresh_token') && params.email_refresh_token) || fields.stamp_refreshed) {
+        params.email_token_refreshed_at = now();
+        assign.push('email_token_refreshed_at = @email_token_refreshed_at');
+    }
+    if (!assign.length) return 0;
+    const sql = `UPDATE accounts SET ${assign.join(', ')}, updated_at = unixepoch() WHERE steam_id = @steam_id`;
+    const changes = db.prepare(sql).run(params).changes;
+    if (changes && mirror.active) mirror.upsert('accounts', db.prepare('SELECT * FROM accounts WHERE steam_id = ?').get(steamID));
+    return changes;
 }
 
 // Add an account WITHOUT scanning it: record only what a raw upload line carries
@@ -406,5 +446,6 @@ const saveGamePlaytime = db.transaction((accountSteamID, games) => {
 module.exports = {
     db, saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts,
     saveRefreshToken, getRefreshToken, clearRefreshToken,
-    isLoanedAccount, setAccountLoan, parseGiftedAt, addAccountStub, saveGamePlaytime
+    isLoanedAccount, setAccountLoan, parseGiftedAt, addAccountStub, saveGamePlaytime,
+    updateCredentials
 };

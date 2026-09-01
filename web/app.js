@@ -5,11 +5,15 @@ const state = {
     q: '',
     filter: '',
     wallet: { currency: '', min: '', max: '' },
-    sort: 'account_name',
-    dir: 'asc',
+    sort: 'wallet',
+    dir: 'desc',
     rows: [],
-    summary: null
+    summary: null,
+    page: 1,
+    perPage: 50,
+    total: 0
 };
+const ACCOUNTS_DEFAULT = { sort: 'wallet', dir: 'desc' };
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, props = {}, ...kids) => {
@@ -61,6 +65,7 @@ function table(cols, rows, renderRow, onRowClick) {
         if (c.key) th.onclick = () => {
             if (state.sort === c.key) state.dir = state.dir === 'asc' ? 'desc' : 'asc';
             else { state.sort = c.key; state.dir = c.num ? 'desc' : 'asc'; }
+            state.page = 1;
             load();
         };
         thead.append(th);
@@ -80,12 +85,8 @@ function table(cols, rows, renderRow, onRowClick) {
 function statCards(s) {
     const cards = [
         ['Accounts', s.accounts], ['With token', s.with_token], ['Tracked wallets', s.accounts - s.skip_wallet],
-        ['skip_wallet', s.skip_wallet], ['Friends', s.friends], ['Sent gifts', s.sent_gifts],
-        ['Pending gifts', s.pending_gifts], ['Open loans', s.open_loans]
+        ['skip_wallet', s.skip_wallet], ['Friends', s.friends], ['Sent gifts', s.sent_gifts]
     ].map(([label, value]) => el('div', { className: 'stat' }, el('b', {}, value), el('span', {}, label)));
-    if (s.overdue_loans) {
-        cards.push(el('div', { className: 'stat alert' }, el('b', {}, s.overdue_loans), el('span', {}, 'Overdue')));
-    }
     s.wallets.forEach((w) => cards.push(
         el('div', { className: 'stat' }, el('b', {}, (w.cents / 100).toFixed(2)), el('span', {}, `${w.currency} · ${w.accounts} acc`))
     ));
@@ -97,11 +98,11 @@ function statCards(s) {
 function toolbar({ filters = [], placeholder = 'Search…' } = {}) {
     const search = el('input', { type: 'search', placeholder, value: state.q });
     let timer;
-    search.oninput = () => { clearTimeout(timer); timer = setTimeout(() => { state.q = search.value.trim(); load(); }, 220); };
+    search.oninput = () => { clearTimeout(timer); timer = setTimeout(() => { state.q = search.value.trim(); state.page = 1; load(); }, 220); };
     const bar = el('div', { className: 'toolbar' }, search);
     filters.forEach(([key, label]) => {
         const b = el('button', { className: 'chip' + (state.filter === key ? ' on' : '') }, label);
-        b.onclick = () => { state.filter = state.filter === key ? '' : key; load(); };
+        b.onclick = () => { state.filter = state.filter === key ? '' : key; state.page = 1; load(); };
         bar.append(b);
     });
     bar.append(el('span', { className: 'count' }, `${state.rows.length} row(s)`));
@@ -109,19 +110,24 @@ function toolbar({ filters = [], placeholder = 'Search…' } = {}) {
 }
 
 function viewAccounts() {
+    // Persona and Source are hidden here to keep the row compact — both are shown
+    // in the account detail dialog.
     const cols = [
-        { key: 'account_name', label: 'Account' }, { key: 'persona', label: 'Persona' },
+        { key: 'account_name', label: 'Account' },
         { key: 'country', label: 'CC' }, { key: 'wallet', label: 'Wallet', num: true },
         { key: 'level', label: 'Lvl', num: true }, { key: 'points', label: 'Points', num: true },
         { key: 'friends', label: 'Friends', num: true }, { key: 'sent', label: 'Sent', num: true },
         { key: 'pending', label: 'Pend', num: true }, { key: 'licenses', label: 'Lic', num: true },
-        { key: 'scanned', label: 'Scanned' }, { label: 'Source' }, { label: 'Flags' }, { label: 'Actions' }
+        { key: 'scanned', label: 'Scanned' }, { label: 'Flags' }, { label: 'Actions' }
     ];
     const rows = table(cols, state.rows, (a) => {
         const flags = el('td');
         if (a.skip_wallet) flags.append(el('span', { className: 'tag skip' }, 'skip_wallet'), ' ');
         if (a.loan_id != null) flags.append(el('span', { className: 'tag loan' }, `loan #${a.loan_id}`), ' ');
-        if (!a.has_token) flags.append(el('span', { className: 'tag notok' }, 'no token'));
+        if (!a.has_token) flags.append(el('span', { className: 'tag notok' }, 'no token'), ' ');
+        if (a.email_token_refreshed_at && (Date.now() / 1000 - a.email_token_refreshed_at) >= MAIL_TOKEN_REFRESH_DAYS * 86400) {
+            flags.append(el('span', { className: 'tag notok', title: 'Mailbox OAuth token is older than 2 months — rotate it' }, 'mail due'));
+        }
 
         const toggle = el('button', { className: 'act' }, a.skip_wallet ? 'Track wallet' : 'Skip wallet');
         toggle.onclick = async () => {
@@ -152,7 +158,6 @@ function viewAccounts() {
 
         return el('tr', {},
             el('td', { className: 'name' }, a.account_name || '—'),
-            el('td', {}, a.persona || '—'),
             el('td', { className: 'dim' }, a.country || '—'),
             el('td', { className: 'num' }, money(a.wallet_balance_cents, a.wallet_currency)),
             el('td', { className: 'num' }, a.steam_level ?? '—'),
@@ -162,7 +167,6 @@ function viewAccounts() {
             el('td', { className: 'num' }, a.pending_gift_count),
             el('td', { className: 'num' }, a.license_count),
             el('td', { className: 'dim' }, date(a.scanned_at)),
-            el('td', { className: 'dim', title: a.source || '' }, a.source || '—'),
             flags,
             el('td', { style: 'white-space:nowrap' }, toggle, ' ', del)
         );
@@ -194,7 +198,26 @@ function viewAccounts() {
     };
     bar.insertBefore(refreshBtn, bar.querySelector('.count'));
 
-    return [bar, progress, walletFilterBar(), rows];
+    return [bar, progress, walletFilterBar(), rows, pager()];
+}
+
+// Pagination controls for the accounts list. state.total / state.pages come from
+// the paginated /api/accounts response.
+function pager() {
+    const pages = state.pages || Math.max(1, Math.ceil(state.total / state.perPage));
+    const bar = el('div', { className: 'toolbar', style: 'justify-content:flex-end; gap:10px; margin-top:10px' });
+    if (state.total > state.perPage) {
+        const prev = el('button', { className: 'act', disabled: state.page <= 1 }, '‹ Prev');
+        const next = el('button', { className: 'act', disabled: state.page >= pages }, 'Next ›');
+        prev.onclick = () => { if (state.page > 1) { state.page--; load(); } };
+        next.onclick = () => { if (state.page < pages) { state.page++; load(); } };
+        const from = (state.page - 1) * state.perPage + 1;
+        const to = Math.min(state.page * state.perPage, state.total);
+        bar.append(prev, el('span', { className: 'dim', style: 'font-size:12px' }, `${from}–${to} of ${state.total} · page ${state.page}/${pages}`), next);
+    } else {
+        bar.append(el('span', { className: 'dim', style: 'font-size:12px' }, `${state.total} account(s)`));
+    }
+    return bar;
 }
 
 // Wallet filter: currency dropdown (from the currencies actually present) + a
@@ -212,6 +235,7 @@ function walletFilterBar() {
     let timer;
     const apply = () => {
         state.wallet = { currency: cur.value, min: min.value.trim(), max: max.value.trim() };
+        state.page = 1;
         load();
     };
     const debounced = () => { clearTimeout(timer); timer = setTimeout(apply, 250); };
@@ -220,7 +244,7 @@ function walletFilterBar() {
     max.oninput = debounced;
 
     const clear = el('button', { className: 'chip' }, 'Clear');
-    clear.onclick = () => { state.wallet = { currency: '', min: '', max: '' }; load(); };
+    clear.onclick = () => { state.wallet = { currency: '', min: '', max: '' }; state.page = 1; load(); };
 
     const bar = el('div', { className: 'toolbar' },
         el('span', { className: 'dim', style: 'font-size:12px' }, 'Wallet:'),
@@ -230,72 +254,6 @@ function walletFilterBar() {
     }
     if (state.wallet.currency || state.wallet.min || state.wallet.max) bar.append(clear);
     return bar;
-}
-
-function viewLoans() {
-    const nowSec = Math.floor(Date.now() / 1000);
-    const form = el('form', { className: 'inline' },
-        el('input', { type: 'text', name: 'account_name', placeholder: 'account name', required: true }),
-        el('input', { type: 'text', name: 'borrower', placeholder: 'borrower' }),
-        el('input', { type: 'number', name: 'days', value: '1', min: '0.1', step: '0.1', style: 'width:76px' }),
-        el('input', { type: 'text', name: 'note', placeholder: 'note' }),
-        el('button', { className: 'act primary', type: 'submit' }, 'Record loan')
-    );
-    form.onsubmit = async (ev) => {
-        ev.preventDefault();
-        const f = Object.fromEntries(new FormData(form));
-        try {
-            await api('/api/loans', { method: 'POST', body: JSON.stringify(f) });
-            toast(`Loan recorded for ${f.account_name} — wallet/level now frozen`);
-            form.reset();
-            load();
-        } catch (err) { toast(err.message, true); }
-    };
-
-    const rows = table(
-        [{ label: '#' }, { label: 'Account' }, { label: 'Borrower' }, { label: 'Lent' }, { label: 'Due' }, { label: 'State' }, { label: 'Note' }, { label: '' }],
-        state.rows,
-        (l) => {
-            const open = !l.returned_at;
-            const overdue = open && l.due_at < nowSec;
-            const state_ = open
-                ? el('span', { className: 'tag ' + (overdue ? 'over' : 'loan') }, overdue ? `overdue ${ago(l.due_at)}` : `due ${ago(l.due_at)}`)
-                : el('span', { className: 'tag done' }, l.password_changed ? 'returned · pw rotated' : 'returned');
-
-            const actions = el('td');
-            if (open) {
-                const btn = el('button', { className: 'act' }, 'Mark returned');
-                btn.onclick = async () => {
-                    if (!confirm(`Close loan #${l.id} for ${l.account_name}?\n\nThis only updates the DB. Rotate the password with:\n  node lend_account.js return ${l.account_name}`)) return;
-                    try { await api(`/api/loans/${l.id}/return`, { method: 'POST' }); toast(`Loan #${l.id} closed`); load(); }
-                    catch (err) { toast(err.message, true); }
-                };
-                actions.append(btn);
-            } else {
-                const btn = el('button', { className: 'act' }, 'Unfreeze wallet');
-                btn.onclick = async () => {
-                    try {
-                        await api(`/api/accounts/${l.account_steam_id}/unlink-loan`, { method: 'POST' });
-                        toast(`${l.account_name}: loan_id cleared, wallet/level updates resume`);
-                        load();
-                    } catch (err) { toast(err.message, true); }
-                };
-                actions.append(btn);
-            }
-
-            return el('tr', {},
-                el('td', { className: 'dim' }, l.id),
-                el('td', { className: 'name' }, l.account_name),
-                el('td', {}, l.borrower || '—'),
-                el('td', { className: 'dim' }, dateTime(l.lent_at)),
-                el('td', { className: 'dim' }, dateTime(l.due_at)),
-                el('td', {}, state_),
-                el('td', { className: 'dim' }, l.note || '—'),
-                actions
-            );
-        }
-    );
-    return [el('div', { className: 'toolbar' }, form), rows];
 }
 
 function viewSent() {
@@ -318,36 +276,54 @@ function viewSent() {
             });
         } catch (err) { toast(err.message, true); refresh.disabled = false; }
     };
-    bar.insertBefore(refresh, bar.querySelector('.count'));
+    // Multi-select delete. Selection is view-local; it resets after a reload.
+    const selected = new Set();
+    const rows = state.rows;
+    const delBtn = el('button', { className: 'act danger', disabled: true }, 'Delete selected');
+    const paintDel = () => { delBtn.disabled = selected.size === 0; delBtn.textContent = selected.size ? `Delete selected (${selected.size})` : 'Delete selected'; };
+    delBtn.onclick = async () => {
+        if (!selected.size) return;
+        if (!confirm(`Delete ${selected.size} sent-gift row(s) from the database?\n\nThis only edits the DB — a gift still pending on Steam reappears on the next sync.`)) return;
+        delBtn.disabled = true;
+        try {
+            const r = await api('/api/gifts/sent/delete', { method: 'POST', body: JSON.stringify({ gift_ids: [...selected] }) });
+            toast(`Deleted ${r.deleted} sent gift(s)`);
+            load();
+        } catch (e) { toast(e.message, true); paintDel(); }
+    };
+    bar.insertBefore(delBtn, bar.querySelector('.count'));
+    bar.insertBefore(refresh, delBtn);
 
-    const tbl = table(
-        [{ label: 'From' }, { label: 'Recipient' }, { label: 'Item' }, { label: 'Sent' }, { label: 'Status' }, { label: 'Scanned' }],
-        state.rows,
-        (g) => el('tr', {},
+    const selectAll = el('input', { type: 'checkbox', title: 'Select all' });
+    const boxes = [];
+    const head = el('tr', {}, el('th', { className: 'no-sort' }, selectAll),
+        ...['From', 'Recipient', 'Item', 'Sent', 'Status', 'Scanned'].map((l) => el('th', { className: 'no-sort' }, l)));
+    const tbody = el('tbody', {}, ...rows.map((g) => {
+        const cb = el('input', { type: 'checkbox' });
+        cb.onchange = () => {
+            cb.checked ? selected.add(g.gift_id) : selected.delete(g.gift_id);
+            selectAll.checked = rows.length > 0 && selected.size === rows.length;
+            paintDel();
+        };
+        boxes.push(cb);
+        return el('tr', {}, el('td', {}, cb),
             el('td', { className: 'name' }, g.account_name || g.account_steam_id),
             el('td', {}, g.recipient_name || g.recipient_steam_id || '—'),
             el('td', {}, g.item_name || '—'),
             el('td', { className: 'dim' }, date(g.sent_at)),
             el('td', {}, g.status || '—'),
-            el('td', { className: 'dim' }, date(g.scanned_at))
-        )
-    );
+            el('td', { className: 'dim' }, date(g.scanned_at)));
+    }));
+    selectAll.onchange = () => {
+        selected.clear();
+        if (selectAll.checked) rows.forEach((g) => selected.add(g.gift_id));
+        boxes.forEach((cb) => { cb.checked = selectAll.checked; });
+        paintDel();
+    };
+    const tbl = rows.length
+        ? el('div', { className: 'table-wrap' }, el('table', {}, el('thead', {}, head), tbody))
+        : el('div', { className: 'empty' }, 'Nothing here.');
     return [bar, progress, tbl];
-}
-
-function viewPending() {
-    return [toolbar({ placeholder: 'Filter is client-side below…' }), table(
-        [{ label: 'Account' }, { label: 'Sender' }, { label: 'Item' }, { label: 'Sent' }, { label: 'Status' }, { label: 'Scanned' }],
-        state.rows,
-        (g) => el('tr', {},
-            el('td', { className: 'name' }, g.account_name || g.account_steam_id),
-            el('td', {}, g.sender_name || g.sender_steam_id || '—'),
-            el('td', {}, g.item_name || '—'),
-            el('td', { className: 'dim' }, g.sent_at || '—'),
-            el('td', {}, g.status || '—'),
-            el('td', { className: 'dim' }, date(g.scanned_at))
-        )
-    )];
 }
 
 function viewFriends() {
@@ -448,12 +424,22 @@ function viewScan() {
         reader.readAsText(f);
     };
     const rescanLabel = el('label', { style: 'display:flex; gap:6px; align-items:center; font-size:12px; color:var(--muted); cursor:pointer' }, rescan, 'Rescan accounts already in DB');
+    // Default mode: log in just far enough to learn each SteamID64 and save it \u2014
+    // fast, and works when the uploaded lines have no SteamID (add-only can't).
+    const idOnly = el('input', { type: 'checkbox', checked: true });
+    const idOnlyLabel = el('label', { style: 'display:flex; gap:6px; align-items:center; font-size:12px; color:var(--muted); cursor:pointer' }, idOnly, 'Log in & save SteamID only (fast)');
     const addOnly = el('input', { type: 'checkbox' });
-    const addOnlyLabel = el('label', { style: 'display:flex; gap:6px; align-items:center; font-size:12px; color:var(--muted); cursor:pointer' }, addOnly, 'Just add to DB (don\u2019t scan)');
-    const submit = el('button', { className: 'act primary' }, 'Scan accounts');
-    const hint = el('span', { className: 'dim', style: 'font-size:12px' }, 'Logs into each account in turn and saves wallet, level, friends, licenses and gifts. Runs one at a time.');
-    // Add-only imports the steamID straight from each line — no login.
-    addOnly.onchange = () => { submit.textContent = addOnly.checked ? 'Add accounts' : 'Scan accounts'; };
+    const addOnlyLabel = el('label', { style: 'display:flex; gap:6px; align-items:center; font-size:12px; color:var(--muted); cursor:pointer' }, addOnly, 'Just add to DB (don\u2019t log in)');
+    const emailTokens = el('input', { type: 'checkbox' });
+    const emailTokensLabel = el('label', { style: 'display:flex; gap:6px; align-items:center; font-size:12px; color:var(--muted); cursor:pointer' }, emailTokens, 'Update email tokens (mail|pass|refresh_token|app_id)');
+    const submit = el('button', { className: 'act primary' }, 'Get SteamIDs');
+    const hint = el('span', { className: 'dim', style: 'font-size:12px' }, 'Default: log in to each account just to save its SteamID (fast). Uncheck "SteamID only" for a full scan (wallet, level, friends, licenses, gifts).');
+    // Four mutually-exclusive modes: SteamID-only login (default), full scan,
+    // add-only (steamID straight from the line, no login), and email-tokens.
+    const modeBoxes = [idOnly, addOnly, emailTokens];
+    const updateSubmitText = () => { submit.textContent = emailTokens.checked ? 'Update email tokens' : addOnly.checked ? 'Add accounts' : idOnly.checked ? 'Get SteamIDs' : 'Scan accounts'; };
+    const exclusive = (on) => { if (on.checked) modeBoxes.forEach((m) => { if (m !== on) m.checked = false; }); updateSubmitText(); };
+    modeBoxes.forEach((m) => { m.onchange = () => exclusive(m); });
 
     ta.oninput = () => { if (source) { source = null; sourceLabel.textContent = 'edited by hand — source will be blank'; } };
 
@@ -461,10 +447,31 @@ function viewScan() {
         const text = ta.value.trim();
         if (!text) { toast('Paste some account lines first', true); return; }
         const count = text.split('\n').filter((l) => l.trim()).length;
-        if (!confirm(`Scan ${count} line(s)?\n\nThis logs into each Steam account and may take ~${Math.ceil(count * (Number(timeout.value) || 60) / 60)} min at worst.`)) return;
+
+        // Email-tokens mode: no Steam login, no job — update existing accounts'
+        // mailbox OAuth columns by matching each line's email.
+        if (emailTokens.checked) {
+            if (!confirm(`Update mailbox tokens for ${count} line(s)?\n\nMatches existing accounts by email and updates only the email password / refresh token / app id.`)) return;
+            submit.disabled = true;
+            try {
+                const r = await api('/api/email-tokens', { method: 'POST', body: JSON.stringify({ text }) });
+                const parts = [`updated ${r.updated}`];
+                if (r.not_found?.length) parts.push(`${r.not_found.length} email not in DB`);
+                if (r.invalid?.length) parts.push(`${r.invalid.length} invalid line`);
+                toast(parts.join(', '), r.updated === 0);
+                if (r.updated > 0) { ta.value = ''; source = null; sourceLabel.textContent = 'no file — source will be blank'; }
+            } catch (err) { toast(err.message, true); }
+            submit.disabled = false;
+            return;
+        }
+
+        const msg = idOnly.checked
+            ? `Log into ${count} account(s) to fetch the SteamID only?\n\nQuick login — saves each SteamID (and password); no wallet, friends, licenses or gifts.`
+            : `Scan ${count} line(s)?\n\nThis logs into each Steam account and may take ~${Math.ceil(count * (Number(timeout.value) || 60) / 60)} min at worst.`;
+        if (!confirm(msg)) return;
         submit.disabled = true;
         try {
-            const job = await api('/api/scan', { method: 'POST', body: JSON.stringify({ text, timeout: (Number(timeout.value) || 60) * 1000, rescan: rescan.checked, source, addOnly: addOnly.checked }) });
+            const job = await api('/api/scan', { method: 'POST', body: JSON.stringify({ text, timeout: (Number(timeout.value) || 60) * 1000, rescan: rescan.checked, source, addOnly: addOnly.checked, idOnly: idOnly.checked }) });
             if (job.mode === 'add-only') {
                 const parts = [`added ${job.added}`];
                 if (job.skipped_no_steamid?.length) parts.push(`${job.skipped_no_steamid.length} no steamID`);
@@ -497,7 +504,7 @@ function viewScan() {
         el('div', { className: 'toolbar', style: 'margin-bottom:8px' }, pickBtn, sourceLabel, fileInput),
         ta,
         el('div', { className: 'toolbar', style: 'margin-top:10px' },
-            el('span', { className: 'dim', style: 'font-size:12px' }, 'Per-account timeout (s):'), timeout, rescanLabel, addOnlyLabel, submit),
+            el('span', { className: 'dim', style: 'font-size:12px' }, 'Per-account timeout (s):'), timeout, idOnlyLabel, rescanLabel, addOnlyLabel, emailTokensLabel, submit),
         el('div', { style: 'margin-bottom:16px' }, hint)
     );
 
@@ -563,93 +570,89 @@ function watchJob(id, panel, onDone) {
     jobPoll = setInterval(tick, 1500);
 }
 
-// --- feedback / reviews -----------------------------------------------------
+// --- detail dialog ----------------------------------------------------------
 
-// A row of 5 stars. readonly => display only; otherwise clickable, calling
-// onPick(n). `get`/`set` share the current value via a small holder object.
-function starRow(value, { readonly = false, onPick = null } = {}) {
-    const row = el('div', { className: 'stars' + (readonly ? ' readonly' : '') });
-    const paint = (v) => [...row.children].forEach((st, i) => st.classList.toggle('on', i < v));
-    for (let i = 1; i <= 5; i++) {
-        const st = el('span', { className: 'star', title: `${i} star${i > 1 ? 's' : ''}` }, '\u2605');
-        if (!readonly) {
-            st.onmouseenter = () => paint(i);
-            st.onclick = () => { row.dataset.value = i; paint(i); onPick && onPick(i); };
-        }
-        row.append(st);
-    }
-    if (!readonly) row.onmouseleave = () => paint(Number(row.dataset.value) || 0);
-    row.dataset.value = value || 0;
-    paint(value || 0);
-    return row;
-}
+// Editable credentials for one account (in the detail dialog). Plaintext, behind
+// the dashboard token. Only fields the user changes are sent; '' clears a field.
+const MAIL_TOKEN_REFRESH_DAYS = 60; // rotate the mailbox OAuth token ~every 2 months
+function credentialsSection(a) {
+    const inStyle = 'width:100%; font-family:var(--mono); font-size:13px; padding:7px 9px; background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px; box-sizing:border-box';
+    const input = (val, ro) => el('input', { type: 'text', value: val ?? '', readOnly: !!ro, autocomplete: 'off', spellcheck: 'false', style: inStyle + (ro ? '; opacity:.65' : '') });
+    const area = (val) => { const t = el('textarea', { rows: 2, autocomplete: 'off', spellcheck: 'false', style: inStyle + '; resize:vertical; word-break:break-all' }); t.value = val ?? ''; return t; };
+    const acctName = input(a.account_name, true);
+    const steamPw = input(a.steam_password);
+    const email = input(a.email);
+    const emailPw = input(a.email_password);
+    const emailRt = area(a.email_refresh_token);
+    const emailCid = input(a.email_client_id);
+    const token = area(a.refresh_token);
 
-function viewFeedback() {
-    const wrap = el('div');
+    const copyBtn = (node) => {
+        const b = el('button', { className: 'act', type: 'button', style: 'font-size:11px; padding:2px 8px' }, 'Copy');
+        b.onclick = () => { navigator.clipboard?.writeText(node.value || '').then(() => toast('Copied'), () => toast('Copy failed', true)); };
+        return b;
+    };
+    const row = (label, node, extra) => el('div', { style: 'margin-bottom:10px' },
+        el('div', { style: 'font-size:12px; color:var(--muted); margin-bottom:4px; display:flex; align-items:center; gap:8px' }, label, extra || ''),
+        node);
 
-    // --- submit form ---
-    let picked = 0;
-    const starPick = starRow(0, { onPick: (n) => { picked = n; ratingHint.textContent = `${n}/5`; } });
-    const ratingHint = el('span', { className: 'dim', style: 'font-size:13px; margin-left:8px' }, 'pick a rating');
-    const comment = el('textarea', { placeholder: 'Leave a review (optional)…', rows: 4,
-        style: 'width:100%; padding:9px; background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px; resize:vertical; font:inherit' });
-    const author = el('input', { type: 'text', placeholder: 'your name (optional)', style: 'width:100%; padding:7px 9px; background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px' });
-    const submit = el('button', { className: 'act primary', style: 'margin-top:12px' }, 'Submit review');
-
-    submit.onclick = async () => {
-        if (!picked) { toast('Pick a star rating first', true); return; }
-        submit.disabled = true;
+    // Mailbox OAuth token rotation status + "mark refreshed".
+    const refreshedInfo = el('span', { style: 'font-size:12px' });
+    const paintRefreshed = () => {
+        const ts = a.email_token_refreshed_at;
+        if (!ts) { refreshedInfo.textContent = 'never refreshed'; refreshedInfo.style.color = 'var(--muted)'; return; }
+        const days = Math.floor((Date.now() / 1000 - ts) / 86400);
+        const due = days >= MAIL_TOKEN_REFRESH_DAYS;
+        refreshedInfo.textContent = `refreshed ${days}d ago${due ? ` — DUE (rotate every ${MAIL_TOKEN_REFRESH_DAYS}d)` : ''}`;
+        refreshedInfo.style.color = due ? '#e5534b' : 'var(--muted)';
+    };
+    paintRefreshed();
+    const markBtn = el('button', { className: 'act', type: 'button', style: 'font-size:11px; padding:2px 8px' }, 'Mark refreshed');
+    markBtn.onclick = async () => {
+        markBtn.disabled = true;
         try {
-            await api('/api/feedback', { method: 'POST', body: JSON.stringify({ rating: picked, comment: comment.value, author: author.value }) });
-            toast('Thanks for the review!');
-            load(); // re-render with the new review + updated average
-        } catch (err) { toast(err.message, true); submit.disabled = false; }
+            await api(`/api/accounts/${a.steam_id}/credentials`, { method: 'POST', body: JSON.stringify({ stamp_refreshed: true }) });
+            a.email_token_refreshed_at = Math.floor(Date.now() / 1000); paintRefreshed(); toast('Marked refreshed');
+        } catch (e) { toast(e.message, true); } finally { markBtn.disabled = false; }
     };
 
-    const form = el('div', { className: 'fb-form' },
-        el('div', { style: 'font-weight:600; margin-bottom:6px' }, 'Leave a review'),
-        el('div', { style: 'display:flex; align-items:center' }, starPick, ratingHint),
-        el('label', {}, 'Review'), comment,
-        el('label', {}, 'Name'), author,
-        submit);
-    wrap.append(form);
+    const status = el('span', { className: 'dim', style: 'font-size:12px; margin-left:10px' });
+    const save = el('button', { className: 'act primary' }, 'Save credentials');
+    save.onclick = async () => {
+        save.disabled = true; status.textContent = 'Saving…';
+        const hadNewMailToken = emailRt.value.trim() && emailRt.value.trim() !== (a.email_refresh_token ?? '');
+        try {
+            await api(`/api/accounts/${a.steam_id}/credentials`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    email: email.value.trim(), email_password: emailPw.value, steam_password: steamPw.value,
+                    email_refresh_token: emailRt.value.trim(), email_client_id: emailCid.value.trim(), refresh_token: token.value.trim(),
+                })
+            });
+            // keep the in-memory account object in sync so re-opening the tab is correct
+            a.email = email.value.trim(); a.email_password = emailPw.value; a.steam_password = steamPw.value;
+            a.email_refresh_token = emailRt.value.trim(); a.email_client_id = emailCid.value.trim(); a.refresh_token = token.value.trim();
+            if (hadNewMailToken) { a.email_token_refreshed_at = Math.floor(Date.now() / 1000); paintRefreshed(); }
+            status.textContent = 'Saved'; toast('Credentials saved');
+        } catch (e) { status.textContent = ''; toast(e.message, true); }
+        finally { save.disabled = false; setTimeout(() => { status.textContent = ''; }, 3000); }
+    };
 
-    // --- summary + list (fetched fresh) ---
-    const listWrap = el('div');
-    wrap.append(listWrap);
-    (async () => {
-        let data;
-        try { data = await api('/api/feedback'); }
-        catch (err) { listWrap.replaceChildren(el('div', { className: 'empty' }, err.message)); return; }
-        const avg = data.average ? data.average.toFixed(1) : '—';
-        const summary = el('div', { className: 'fb-summary' },
-            el('span', { className: 'big' }, avg),
-            starRow(Math.round(data.average || 0), { readonly: true }),
-            el('span', { className: 'dim' }, `${data.count} review${data.count === 1 ? '' : 's'}`));
-        const bars = el('div', { style: 'margin-bottom:18px' });
-        for (let r = 5; r >= 1; r--) {
-            const c = (data.distribution && data.distribution[r]) || 0;
-            const pct = data.count ? Math.round((c / data.count) * 100) : 0;
-            bars.append(el('div', { className: 'fb-bar' },
-                el('span', { style: 'width:12px' }, String(r)), '\u2605',
-                el('span', { className: 'track' }, el('div', { className: 'fill', style: `width:${pct}%` })),
-                el('span', {}, String(c))));
-        }
-        const reviews = data.reviews.length
-            ? data.reviews.map((rv) => el('div', { className: 'review' },
-                el('div', { className: 'head' },
-                    starRow(rv.rating, { readonly: true }),
-                    el('span', { className: 'who' }, rv.author || 'Anonymous'),
-                    el('span', { className: 'when' }, dateTime(rv.created_at))),
-                rv.comment ? el('div', { className: 'body' }, rv.comment) : ''))
-            : [el('div', { className: 'empty' }, 'No reviews yet — be the first.')];
-        listWrap.replaceChildren(summary, bars, el('div', { style: 'font-weight:600; margin-bottom:8px' }, 'Reviews'), ...reviews);
-    })();
-
-    return [wrap];
+    return el('div', { style: 'max-width:560px' },
+        el('div', { className: 'dim', style: 'font-size:12px; margin-bottom:12px' }, '⚠ Plaintext, stored in the database and visible to anyone with the dashboard token. Never share a screenshot.'),
+        row('Steam login name', acctName),
+        row('Steam password', steamPw, copyBtn(steamPw)),
+        el('div', { style: 'border-top:1px solid var(--border); margin:14px 0 10px; padding-top:10px; font-size:12px; color:var(--muted)' }, 'Mailbox (email:pass:refresh_token:client_id)'),
+        row('Email', email),
+        row('Email password', emailPw, copyBtn(emailPw)),
+        row('Email refresh token', emailRt, copyBtn(emailRt)),
+        row('Email client ID', emailCid, copyBtn(emailCid)),
+        row('Mailbox token', refreshedInfo, markBtn),
+        el('div', { style: 'border-top:1px solid var(--border); margin:14px 0 10px; padding-top:10px; font-size:12px; color:var(--muted)' }, 'Steam'),
+        row('Steam refresh token (blank to clear)', token, copyBtn(token)),
+        el('div', { style: 'margin-top:4px' }, save, status)
+    );
 }
-
-// --- detail dialog ----------------------------------------------------------
 
 async function openDetail(steamID) {
     const dlg = $('#detail');
@@ -688,17 +691,12 @@ async function openDetail(steamID) {
                 el('td', { className: 'dim' }, `${date(f.added_at)} (${ago(f.added_at)})`),
                 el('td', { className: 'dim' }, f.gifted_game ? `${f.gifted_game} · ${date(f.gifted_at)}` : '—'))
         ),
+        ['Credentials']: () => credentialsSection(a),
         [`Sent gifts (${d.sent_gifts.length})`]: () => table(
             [{ label: 'Recipient' }, { label: 'Item' }, { label: 'Sent' }, { label: 'Status' }],
             d.sent_gifts,
             (g) => el('tr', {}, el('td', {}, g.recipient_name || '—'), el('td', {}, g.item_name || '—'),
                 el('td', { className: 'dim' }, date(g.sent_at)), el('td', {}, g.status || '—'))
-        ),
-        [`Pending (${d.pending_gifts.length})`]: () => table(
-            [{ label: 'Sender' }, { label: 'Item' }, { label: 'Sent' }, { label: 'Status' }],
-            d.pending_gifts,
-            (g) => el('tr', {}, el('td', {}, g.sender_name || '—'), el('td', {}, g.item_name || '—'),
-                el('td', { className: 'dim' }, g.sent_at || '—'), el('td', {}, g.status || '—'))
         ),
         [`Licenses (${d.licenses.length})`]: () => table(
             [{ label: 'Package' }, { label: 'Name' }, { label: 'Payment' }, { label: 'Bought' }],
@@ -742,14 +740,7 @@ async function openDetail(steamID) {
                 logPanel, list);
             loadGames();
             return box;
-        },
-        [`Loans (${d.loans.length})`]: () => table(
-            [{ label: '#' }, { label: 'Borrower' }, { label: 'Lent' }, { label: 'Due' }, { label: 'Returned' }],
-            d.loans,
-            (l) => el('tr', {}, el('td', { className: 'dim' }, l.id), el('td', {}, l.borrower || '—'),
-                el('td', { className: 'dim' }, dateTime(l.lent_at)), el('td', { className: 'dim' }, dateTime(l.due_at)),
-                el('td', { className: 'dim' }, l.returned_at ? dateTime(l.returned_at) : 'open'))
-        )
+        }
     };
     Object.keys(sections).forEach((name, i) => {
         const b = el('button', { className: 'chip' + (i === 0 ? ' on' : '') }, name);
@@ -900,16 +891,14 @@ async function openDetail(steamID) {
 
 const ENDPOINTS = {
     accounts: () => `/api/accounts?q=${encodeURIComponent(state.q)}&filter=${state.filter}&sort=${state.sort}&dir=${state.dir}`
-        + `&currency=${encodeURIComponent(state.wallet.currency)}&wallet_min=${encodeURIComponent(state.wallet.min)}&wallet_max=${encodeURIComponent(state.wallet.max)}`,
-    loans: () => '/api/loans',
+        + `&currency=${encodeURIComponent(state.wallet.currency)}&wallet_min=${encodeURIComponent(state.wallet.min)}&wallet_max=${encodeURIComponent(state.wallet.max)}`
+        + `&page=${state.page}&per=${state.perPage}`,
     sent: () => '/api/gifts/sent',
-    pending: () => '/api/gifts/pending',
     friends: () => `/api/friends?q=${encodeURIComponent(state.q)}`,
     licenses: () => `/api/licenses?q=${encodeURIComponent(state.q)}`,
-    scan: null,
-    feedback: null
+    scan: null
 };
-const VIEWS = { accounts: viewAccounts, loans: viewLoans, sent: viewSent, pending: viewPending, friends: viewFriends, licenses: viewLicenses, scan: viewScan, feedback: viewFeedback };
+const VIEWS = { accounts: viewAccounts, sent: viewSent, friends: viewFriends, licenses: viewLicenses, scan: viewScan };
 
 async function load() {
     try {
@@ -920,10 +909,14 @@ async function load() {
             $('#view').replaceChildren(...VIEWS[state.view]());
             return;
         }
-        const rows = await api(ENDPOINTS[state.view]());
+        const data = await api(ENDPOINTS[state.view]());
+        // Accounts is paginated → { rows, total, page, pages }; other views are arrays.
+        const rows = Array.isArray(data) ? data : data.rows;
+        state.total = Array.isArray(data) ? rows.length : data.total;
+        if (!Array.isArray(data)) { state.page = data.page; state.pages = data.pages; }
         state.rows = rows;
-        // Sent/pending views filter client-side; the server has no search on them.
-        if ((state.view === 'sent' || state.view === 'pending') && state.q) {
+        // The sent-gifts view filters client-side; the server has no search on it.
+        if (state.view === 'sent' && state.q) {
             const needle = state.q.toLowerCase();
             state.rows = rows.filter((r) => JSON.stringify(r).toLowerCase().includes(needle));
         }
@@ -942,7 +935,8 @@ document.querySelectorAll('nav button').forEach((b) => {
         state.q = '';
         state.filter = '';
         state.wallet = { currency: '', min: '', max: '' };
-        state.sort = state.view === 'accounts' ? 'account_name' : state.sort;
+        state.page = 1;
+        if (state.view === 'accounts') { state.sort = ACCOUNTS_DEFAULT.sort; state.dir = ACCOUNTS_DEFAULT.dir; }
         load();
     };
 });

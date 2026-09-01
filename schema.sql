@@ -42,6 +42,15 @@ CREATE TABLE IF NOT EXISTS accounts (
     source                TEXT,             -- Where this account came from, e.g. the
                                             -- uploaded file's name. Set on the scan that
                                             -- first imported it; kept on later re-scans.
+    steam_password        TEXT,             -- Steam login password (managed in the dashboard;
+                                            -- captured on the initial upload/scan). Plaintext.
+    email_password        TEXT,             -- Password for the account's `email` inbox. Plaintext.
+    email_refresh_token   TEXT,             -- OAuth refresh token for the mailbox (Outlook/Hotmail
+                                            -- `email:pass:refresh_token:client_id` format), used to
+                                            -- read Steam Guard emails. Rotate ~every 2 months.
+    email_client_id       TEXT,             -- OAuth client_id paired with email_refresh_token.
+    email_token_refreshed_at INTEGER,       -- Unix epoch the mailbox OAuth token was last refreshed;
+                                            -- the dashboard flags it "due" after ~60 days.
     scanned_at            INTEGER,          -- Last scan unix epoch (seconds)
     created_at            INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at            INTEGER NOT NULL DEFAULT (unixepoch())

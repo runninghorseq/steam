@@ -92,8 +92,8 @@ async function saveAccount(partial) {
     }
     const ts = now();
     await d1n.d1run(
-        'INSERT INTO accounts (steam_id, account_name, persona, country, email, wallet_currency, wallet_balance_cents, steam_level, steam_points, source, scanned_at, created_at, updated_at) '
-        + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
+        'INSERT INTO accounts (steam_id, account_name, persona, country, email, wallet_currency, wallet_balance_cents, steam_level, steam_points, source, steam_password, email_password, scanned_at, created_at, updated_at) '
+        + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
         + 'ON CONFLICT(steam_id) DO UPDATE SET '
         + '  account_name = COALESCE(excluded.account_name, accounts.account_name),'
         + '  persona = COALESCE(excluded.persona, accounts.persona),'
@@ -104,10 +104,12 @@ async function saveAccount(partial) {
         + '  steam_level = COALESCE(excluded.steam_level, accounts.steam_level),'
         + '  steam_points = COALESCE(excluded.steam_points, accounts.steam_points),'
         + '  source = COALESCE(excluded.source, accounts.source),'
+        + '  steam_password = COALESCE(excluded.steam_password, accounts.steam_password),'
+        + '  email_password = COALESCE(excluded.email_password, accounts.email_password),'
         + '  scanned_at = excluded.scanned_at, updated_at = excluded.updated_at',
         [p.steam_id, p.account_name ?? null, p.persona ?? null, p.country ?? null, p.email ?? null,
          p.wallet_currency ?? null, p.wallet_balance_cents ?? null, p.steam_level ?? null, p.steam_points ?? null,
-         p.source ?? null, ts, ts, ts]);
+         p.source ?? null, p.steam_password ?? null, p.email_password ?? null, ts, ts, ts]);
 }
 
 // --- friends (COALESCE upsert — preserves gifted_at/gifted_game/country) ------

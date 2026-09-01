@@ -124,21 +124,3 @@ form.inline { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     padding: 9px 16px; z-index: 100; box-shadow: 0 6px 24px rgba(0,0,0,.35);
 }
 .toast.err { border-color: var(--bad); color: var(--bad); }
-
-/* --- feedback / star reviews --- */
-.stars { display: inline-flex; gap: 2px; font-size: 26px; line-height: 1; }
-.stars .star { color: var(--border); cursor: pointer; transition: color .1s; user-select: none; }
-.stars .star.on { color: #f5b301; }
-.stars.readonly .star { cursor: default; font-size: 16px; }
-.review { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 8px; }
-.review .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.review .who { font-weight: 600; }
-.review .when { color: var(--muted); font-size: 12px; }
-.review .body { margin-top: 6px; white-space: pre-wrap; }
-.fb-form { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; max-width: 560px; margin-bottom: 22px; }
-.fb-form label { display: block; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin: 10px 0 4px; }
-.fb-summary { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
-.fb-summary .big { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.fb-bar { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
-.fb-bar .track { width: 160px; height: 8px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px; overflow: hidden; }
-.fb-bar .fill { height: 100%; background: #f5b301; }

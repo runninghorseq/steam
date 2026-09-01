@@ -15,11 +15,13 @@ const now = () => Math.floor(Date.now() / 1000);
 const accountSteamId = db.prepare('SELECT steam_id FROM accounts WHERE account_name = ?');
 
 // Build the "exclude these friend names" clause + its params (lowercased).
+// Names are inlined as escaped literals (not bound). Parity with the Worker,
+// where D1 caps bound variables at 100 and the exclude list exceeds that.
+const sqlLit = (v) => `'${String(v).replace(/'/g, "''")}'`;
 function excludeNamesClause(alias, excludeNames) {
     const names = (excludeNames || []).map((n) => String(n).trim().toLowerCase()).filter(Boolean);
     if (!names.length) return { sql: '', params: [] };
-    const ph = names.map(() => '?').join(',');
-    return { sql: `  AND lower(${alias}.friend_name) NOT IN (${ph}) `, params: names };
+    return { sql: `  AND lower(${alias}.friend_name) NOT IN (${names.map(sqlLit).join(',')}) `, params: [] };
 }
 
 // Build the leading ORDER BY term that floats PRIORITY names first (ends with a
@@ -27,8 +29,8 @@ function excludeNamesClause(alias, excludeNames) {
 function priorityOrderClause(alias, priorityNames) {
     const names = (priorityNames || []).map((n) => String(n).trim().toLowerCase()).filter(Boolean);
     if (!names.length) return { sql: '', params: [] };
-    const whens = names.map((_, i) => `WHEN ? THEN ${i}`).join(' ');
-    return { sql: `CASE lower(${alias}.friend_name) ${whens} ELSE ${names.length} END, `, params: names };
+    const whens = names.map((n, i) => `WHEN ${sqlLit(n)} THEN ${i}`).join(' ');
+    return { sql: `CASE lower(${alias}.friend_name) ${whens} ELSE ${names.length} END, `, params: [] };
 }
 
 // --- game1 (friends-row tracked): oldest ungifted, non-VN friends -------------
