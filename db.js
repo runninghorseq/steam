@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
+const mirror = require('./d1_mirror'); // D1 write-through (no-op unless configured)
 
 const DB_PATH = path.join(__dirname, 'steam_accounts.db');
 const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
@@ -167,7 +168,9 @@ function isLoanedAccount(steamID) {
 
 // Link an account to a loan (or pass null to unlink it and unfreeze the columns).
 function setAccountLoan(steamID, loanID) {
-    return setAccountLoanID.run(loanID ?? null, steamID).changes;
+    const changes = setAccountLoanID.run(loanID ?? null, steamID).changes;
+    if (mirror.active && changes) mirror.upsert('accounts', db.prepare('SELECT * FROM accounts WHERE steam_id = ?').get(steamID));
+    return changes;
 }
 
 function saveAccount(partial) {
@@ -201,6 +204,7 @@ function saveAccount(partial) {
         scanned_at: ts,
         now: ts
     });
+    if (mirror.active) mirror.upsert('accounts', db.prepare('SELECT * FROM accounts WHERE steam_id = ?').get(partial.steam_id));
 }
 
 // Add an account WITHOUT scanning it: record only what a raw upload line carries
@@ -240,6 +244,7 @@ const saveFriends = db.transaction((accountSteamID, friends) => {
             now: ts
         });
     }
+    if (mirror.active) mirror.replaceForAccount('friends', 'account_steam_id', accountSteamID, db.prepare('SELECT * FROM friends WHERE account_steam_id = ?').all(accountSteamID));
 });
 
 const saveLicenses = db.transaction((accountSteamID, licenses) => {
@@ -278,6 +283,10 @@ const saveLicenses = db.transaction((accountSteamID, licenses) => {
             });
         }
     }
+    if (mirror.active) {
+        mirror.replaceForAccount('licenses', 'account_steam_id', accountSteamID, db.prepare('SELECT * FROM licenses WHERE account_steam_id = ?').all(accountSteamID));
+        mirror.replaceForAccount('license_apps', 'account_steam_id', accountSteamID, db.prepare('SELECT * FROM license_apps WHERE account_steam_id = ?').all(accountSteamID));
+    }
 });
 
 const saveGifts = db.transaction((accountSteamID, gifts) => {
@@ -301,6 +310,7 @@ const saveGifts = db.transaction((accountSteamID, gifts) => {
             updateFriendGift.run(parseGiftedAt(g.sent_at), g.item_name ?? null, accountSteamID, g.sender_steam_id);
         }
     }
+    if (mirror.active) mirror.replaceForAccount('pending_gifts', 'account_steam_id', accountSteamID, db.prepare('SELECT * FROM pending_gifts WHERE account_steam_id = ?').all(accountSteamID));
 });
 
 const deleteSentGifts = db.prepare('DELETE FROM sent_gifts WHERE account_steam_id = ?');
@@ -340,6 +350,7 @@ const saveSentGifts = db.transaction((accountSteamID, gifts) => {
             now: ts
         });
     }
+    if (mirror.active) mirror.replaceForAccount('sent_gifts', 'account_steam_id', accountSteamID, db.prepare('SELECT * FROM sent_gifts WHERE account_steam_id = ?').all(accountSteamID));
 });
 
 const upsertToken = db.prepare(`
@@ -382,6 +393,7 @@ const saveGamePlaytime = db.transaction((accountSteamID, games) => {
             now: ts
         });
     }
+    if (mirror.active) mirror.replaceForAccount('game_playtime', 'account_steam_id', accountSteamID, db.prepare('SELECT * FROM game_playtime WHERE account_steam_id = ?').all(accountSteamID));
     return games.length;
 });
 

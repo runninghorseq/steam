@@ -318,11 +318,12 @@ if (require.main === module) {
     }
 
     runWithConcurrency(accounts, concurrency, (acc) => updateWalletLevel(acc, { timeout, mode }))
-        .then((results) => {
+        .then(async (results) => {
             const ok = results.filter(r => r?.ok).length;
             const failed = results.filter(r => !r?.ok);
             console.log(`\n=== Done: ${ok}/${results.length} ok ===`);
             failed.forEach(r => console.log(`  FAIL ${r.username}: ${r.reason}`));
+            await require('./d1_mirror').flushNow();
             process.exit(0);
         });
 }

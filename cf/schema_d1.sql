@@ -84,6 +84,17 @@ CREATE TABLE IF NOT EXISTS "sent_gifts" (
                 created_at          INTEGER NOT NULL DEFAULT (unixepoch()),
                 updated_at          INTEGER NOT NULL DEFAULT (unixepoch())
             );
+CREATE TABLE game_playtime (
+    account_steam_id  TEXT,
+    app_id            INTEGER,
+    name              TEXT,
+    playtime_forever  INTEGER,  -- minutes, all time
+    playtime_2weeks   INTEGER,  -- minutes, last 2 weeks
+    scanned_at        INTEGER,
+    created_at        INTEGER NOT NULL DEFAULT (unixepoch()),
+    updated_at        INTEGER NOT NULL DEFAULT (unixepoch()),
+    PRIMARY KEY (account_steam_id, app_id)
+);
 CREATE TABLE feedback (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     rating      INTEGER NOT NULL,   -- 1..5 stars
@@ -92,7 +103,7 @@ CREATE TABLE feedback (
     created_at  INTEGER NOT NULL DEFAULT (unixepoch())
 );
 
--- Supplemental indexes for heavy gift-candidate + lookup queries over 27k friends.
+-- Supplemental indexes for heavy gift-candidate + lookup queries.
 CREATE INDEX IF NOT EXISTS idx_friends_name       ON friends (friend_name);
 CREATE INDEX IF NOT EXISTS idx_friends_steamid    ON friends (friend_steam_id);
 CREATE INDEX IF NOT EXISTS idx_friends_account    ON friends (account_steam_id);
@@ -101,3 +112,4 @@ CREATE INDEX IF NOT EXISTS idx_sent_recipient_id  ON sent_gifts (recipient_steam
 CREATE INDEX IF NOT EXISTS idx_sent_recipient_nm  ON sent_gifts (recipient_name);
 CREATE INDEX IF NOT EXISTS idx_sent_account       ON sent_gifts (account_steam_id);
 CREATE INDEX IF NOT EXISTS idx_accounts_name      ON accounts (account_name);
+CREATE INDEX IF NOT EXISTS idx_playtime_account   ON game_playtime (account_steam_id);

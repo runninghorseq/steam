@@ -133,12 +133,13 @@ if (require.main === module) {
     if (accounts.length === 0) { console.log('Nothing to do.'); process.exit(0); }
 
     runWithConcurrency(accounts, concurrency, (acc) => fetchPlaytime(acc, { timeout }))
-        .then((results) => {
+        .then(async (results) => {
             const ok = results.filter((r) => r?.ok);
             const failed = results.filter((r) => !r?.ok);
             const totalGames = ok.reduce((s, r) => s + (r.count || 0), 0);
             console.log(`\n=== Done: ${ok.length}/${results.length} ok, ${totalGames} games recorded ===`);
             failed.forEach((r) => console.log(`  FAIL ${r.username}: ${r.reason}`));
+            await require('./d1_mirror').flushNow();
             process.exit(0);
         });
 }

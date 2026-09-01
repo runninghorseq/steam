@@ -54,5 +54,6 @@ if (require.main !== module) return;
     console.log(`\n=== Done: ${ok}/${results.length} ok, ${failed.length} failed${guardSkipped.length ? `, ${guardSkipped.length} Steam-Guard-skipped` : ''} ===`);
     failed.forEach(r => console.log(`  FAIL ${r.account.username}: ${r.reason}`));
     guardSkipped.forEach(r => console.log(`  SKIP ${r.account.username}: ${r.reason}`));
+    await require('./d1_mirror').flushNow();
     process.exit(0);
 })();
