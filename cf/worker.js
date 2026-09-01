@@ -331,6 +331,31 @@ async function handleApi(req, env, url) {
             .bind(q, like, like, like)));
     }
 
+    // Licenses aggregated by package (one row per package_id, across all accounts).
+    if (method === 'GET' && p === '/api/licenses') {
+        const q = url.searchParams.get('q') || '';
+        const like = `%${q}%`;
+        return json(await rowsOf(env.DB.prepare(
+            "SELECT l.package_id, MAX(l.package_name) AS package_name, "
+            + "COUNT(DISTINCT l.account_steam_id) AS account_count, "
+            + "(SELECT group_concat(DISTINCT la.app_name) FROM license_apps la WHERE la.package_id = l.package_id AND la.app_name IS NOT NULL) AS app_names "
+            + "FROM licenses l "
+            + "WHERE (? = '' OR l.package_name LIKE ? OR CAST(l.package_id AS TEXT) LIKE ? "
+            + "OR EXISTS (SELECT 1 FROM license_apps la2 WHERE la2.package_id = l.package_id AND la2.app_name LIKE ?)) "
+            + "GROUP BY l.package_id ORDER BY account_count DESC, package_name LIMIT 2000")
+            .bind(q, like, like, like)));
+    }
+    // Which accounts own a given package.
+    if (method === 'GET' && p === '/api/licenses/owners') {
+        const pkg = parseInt(url.searchParams.get('package_id'), 10);
+        if (!Number.isFinite(pkg)) return json({ error: 'package_id required' }, 400);
+        return json(await rowsOf(env.DB.prepare(
+            "SELECT l.account_steam_id, a.account_name, l.payment_method, l.license_type, l.purchased_at "
+            + "FROM licenses l LEFT JOIN accounts a ON a.steam_id = l.account_steam_id "
+            + "WHERE l.package_id = ? ORDER BY a.account_name")
+            .bind(pkg)));
+    }
+
     if (method === 'POST' && p === '/api/scan') return proxyToBox(req, env, url);
     if (method === 'POST' && p === '/api/wallets/refresh') return proxyToBox(req, env, url);
     if (p === '/api/jobs' || /^\/api\/jobs\//.test(p)) return proxyToBox(req, env, url); // job state lives on the box

@@ -366,6 +366,56 @@ function viewFriends() {
     )];
 }
 
+// Licenses: one row per package (aggregated across every account), with a count
+// of how many accounts own it. Click a row to see exactly which accounts do.
+function viewLicenses() {
+    const pkgName = (l) => (l.package_name && l.package_name !== '(unknown)')
+        ? l.package_name
+        : (l.app_names ? l.app_names.split(',')[0] : '(unknown)');
+    return [toolbar({ placeholder: 'Search package name, app, package ID…' }), table(
+        [{ label: 'Package' }, { label: 'ID' }, { label: 'Apps' }, { label: 'Owners', num: true }],
+        state.rows,
+        (l) => el('tr', {},
+            el('td', { className: 'name' }, pkgName(l)),
+            el('td', { className: 'dim num' }, l.package_id),
+            el('td', { className: 'dim', title: l.app_names || '' }, l.app_names || '—'),
+            el('td', { className: 'num' }, l.account_count)
+        ),
+        (l) => openLicenseOwners(l)
+    )];
+}
+
+// Show which accounts own a given package, in the shared detail dialog. Each
+// owner row is clickable through to that account's full detail.
+async function openLicenseOwners(pkg) {
+    const dlg = $('#detail');
+    const body = $('#detail-body');
+    const name = (pkg.package_name && pkg.package_name !== '(unknown)') ? pkg.package_name : (pkg.app_names || '(unknown)');
+    $('#detail-title').textContent = `Package ${pkg.package_id} · ${name}`;
+    body.replaceChildren(el('div', { className: 'empty' }, 'Loading…'));
+    if (!dlg.open) dlg.showModal();
+    let rows;
+    try { rows = await api(`/api/licenses/owners?package_id=${encodeURIComponent(pkg.package_id)}`); }
+    catch (err) { body.replaceChildren(el('div', { className: 'empty' }, err.message)); return; }
+
+    body.replaceChildren(
+        pkg.app_names
+            ? el('div', { className: 'kv' }, el('div', {}, el('span', {}, 'Apps'), el('b', {}, pkg.app_names)))
+            : el('div'),
+        table(
+            [{ label: 'Account' }, { label: 'SteamID' }, { label: 'Payment' }, { label: 'Type' }, { label: 'Bought' }],
+            rows,
+            (r) => el('tr', {},
+                el('td', { className: 'name' }, r.account_name || '—'),
+                el('td', { className: 'dim name' }, r.account_steam_id),
+                el('td', { className: 'dim' }, r.payment_method || '—'),
+                el('td', { className: 'dim' }, r.license_type || '—'),
+                el('td', { className: 'dim' }, date(r.purchased_at))),
+            (r) => openDetail(r.account_steam_id)
+        )
+    );
+}
+
 function viewScan() {
     const wrap = el('div');
 
@@ -855,10 +905,11 @@ const ENDPOINTS = {
     sent: () => '/api/gifts/sent',
     pending: () => '/api/gifts/pending',
     friends: () => `/api/friends?q=${encodeURIComponent(state.q)}`,
+    licenses: () => `/api/licenses?q=${encodeURIComponent(state.q)}`,
     scan: null,
     feedback: null
 };
-const VIEWS = { accounts: viewAccounts, loans: viewLoans, sent: viewSent, pending: viewPending, friends: viewFriends, scan: viewScan, feedback: viewFeedback };
+const VIEWS = { accounts: viewAccounts, loans: viewLoans, sent: viewSent, pending: viewPending, friends: viewFriends, licenses: viewLicenses, scan: viewScan, feedback: viewFeedback };
 
 async function load() {
     try {

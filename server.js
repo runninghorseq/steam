@@ -821,6 +821,30 @@ async function handleAPI(req, res, url) {
         `).all({ q, like: `%${q}%` }));
     }
 
+    // Licenses aggregated by package (one row per package_id, across all accounts).
+    if (method === 'GET' && p === '/api/licenses') {
+        const q = url.searchParams.get('q') || '';
+        return sendJSON(res, 200, db.prepare(`
+            SELECT l.package_id, MAX(l.package_name) AS package_name,
+                   COUNT(DISTINCT l.account_steam_id) AS account_count,
+                   (SELECT group_concat(DISTINCT la.app_name) FROM license_apps la WHERE la.package_id = l.package_id AND la.app_name IS NOT NULL) AS app_names
+            FROM licenses l
+            WHERE (@q = '' OR l.package_name LIKE @like OR CAST(l.package_id AS TEXT) LIKE @like
+                   OR EXISTS (SELECT 1 FROM license_apps la2 WHERE la2.package_id = l.package_id AND la2.app_name LIKE @like))
+            GROUP BY l.package_id ORDER BY account_count DESC, package_name LIMIT 2000
+        `).all({ q, like: `%${q}%` }));
+    }
+    // Which accounts own a given package.
+    if (method === 'GET' && p === '/api/licenses/owners') {
+        const pkg = parseInt(url.searchParams.get('package_id'), 10);
+        if (!Number.isFinite(pkg)) return sendJSON(res, 400, { error: 'package_id required' });
+        return sendJSON(res, 200, db.prepare(`
+            SELECT l.account_steam_id, a.account_name, l.payment_method, l.license_type, l.purchased_at
+            FROM licenses l LEFT JOIN accounts a ON a.steam_id = l.account_steam_id
+            WHERE l.package_id = ? ORDER BY a.account_name
+        `).all(pkg));
+    }
+
     if (method === 'POST' && p === '/api/scan') {
         const { text, timeout, rescan, source, addOnly } = await readBody(req);
         if (!text || !String(text).trim()) return sendJSON(res, 400, { error: 'no account lines provided' });
