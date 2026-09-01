@@ -153,7 +153,21 @@ async function saveSentGifts(accountSteamID, gifts) {
 
 // reconcile for the sent-gift sync: prune gift_ids no longer live, upsert live.
 async function reconcileSentGifts(accountSteamID, liveGifts) {
-    if (!USE_D1) return local.reconcileSentGifts(accountSteamID, liveGifts);
+    if (!USE_D1) {
+        const ts = now();
+        const live = new Set(liveGifts.map((g) => g.gift_id));
+        const existing = local.db.prepare('SELECT gift_id FROM sent_gifts WHERE account_steam_id = ?').all(accountSteamID).map((r) => r.gift_id);
+        const deleted = existing.filter((id) => !live.has(id));
+        const del = local.db.prepare('DELETE FROM sent_gifts WHERE account_steam_id = ? AND gift_id = ?');
+        const up = local.db.prepare(
+            'INSERT OR REPLACE INTO sent_gifts (gift_id, account_steam_id, recipient_steam_id, recipient_name, item_name, detail, sent_at, status, store_url, scanned_at, created_at, updated_at) '
+            + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        local.db.transaction(() => {
+            for (const id of deleted) del.run(accountSteamID, id);
+            for (const g of liveGifts) up.run(g.gift_id, accountSteamID, g.recipient_steam_id ?? null, g.recipient_name ?? null, g.item_name ?? null, g.detail ?? null, parseGiftedAt(g.sent_at), g.status ?? null, g.store_url ?? null, ts, ts, ts);
+        })();
+        return { kept: liveGifts.length, deleted };
+    }
     const ts = now();
     const live = new Set(liveGifts.map((g) => g.gift_id));
     const existing = (await d1n.d1all('SELECT gift_id FROM sent_gifts WHERE account_steam_id = ?', [accountSteamID])).map((r) => r.gift_id);
