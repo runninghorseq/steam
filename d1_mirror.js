@@ -107,6 +107,18 @@ async function flush() {
     }
 }
 
+// Health check: verify the mirror can reach D1 with the configured creds.
+async function ping() {
+    if (!active) return { active: false, reason: 'not configured — need D1_MIRROR=1, CLOUDFLARE_ACCOUNT_ID, D1_DATABASE_ID, CLOUDFLARE_API_TOKEN' };
+    try { await d1Query('SELECT 1 AS ok;'); return { active: true, ok: true, account: ACCOUNT_ID, database: DB_ID }; }
+    catch (e) { return { active: true, ok: false, error: e.message, account: ACCOUNT_ID, database: DB_ID }; }
+}
+
+// `node d1_mirror.js` prints whether the mirror is configured and can reach D1.
+if (require.main === module) {
+    ping().then((r) => { console.log(JSON.stringify(r, null, 2)); process.exit(r.ok ? 0 : 1); });
+}
+
 // Public API used by db.js. Each accepts the CURRENT local rows (post-write) and
 // mirrors them idempotently to D1.
 module.exports = {
@@ -128,4 +140,5 @@ module.exports = {
     // Flush everything and wait — call before a CLI process exits.
     async flushNow() { if (!active) return; while (queue.length || flushing) { await flush(); if (flushing) await new Promise((r) => setTimeout(r, 50)); } },
     pending() { return queue.length; },
+    ping,
 };
