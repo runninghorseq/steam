@@ -509,6 +509,27 @@ function viewScan() {
     );
 
     const jobPanel = el('div');
+
+    // Rotate stored mailbox OAuth tokens against Microsoft before they expire
+    // (~90 days). Runs as a job on the box; progress streams into jobPanel.
+    const rotateDue = el('button', { className: 'act primary' }, 'Rotate mailbox tokens (due > 60d)');
+    const rotateAll = el('button', { className: 'act' }, 'Rotate ALL now');
+    const runRotate = (body, label) => async () => {
+        if (!confirm(`${label}?\n\nCalls Microsoft to exchange each stored refresh token for a fresh one and re-stamps the rotation time.`)) return;
+        rotateDue.disabled = rotateAll.disabled = true;
+        try {
+            const job = await api('/api/email-tokens/refresh', { method: 'POST', body: JSON.stringify(body) });
+            toast(`Rotation job ${job.id} started`);
+            watchJob(job.id, jobPanel, () => { rotateDue.disabled = rotateAll.disabled = false; });
+        } catch (e) { toast(e.message, true); rotateDue.disabled = rotateAll.disabled = false; }
+    };
+    rotateDue.onclick = runRotate({ dueDays: 60 }, 'Rotate mailbox tokens last refreshed over 60 days ago');
+    rotateAll.onclick = runRotate({}, 'Rotate every stored mailbox token');
+    wrap.append(
+        el('div', { style: 'margin:18px 0 8px; font-weight:600' }, 'Mailbox token rotation'),
+        el('div', { className: 'toolbar' }, rotateDue, rotateAll,
+            el('span', { className: 'dim', style: 'font-size:12px' }, 'Outlook/Hotmail refresh tokens expire ~90d — rotate monthly.')));
+
     wrap.append(el('div', { style: 'margin:18px 0 8px; font-weight:600' }, 'Scan jobs'), jobPanel);
     renderJobList(jobPanel);
     return [wrap];
@@ -638,10 +659,38 @@ function credentialsSection(a) {
         finally { save.disabled = false; setTimeout(() => { status.textContent = ''; }, 3000); }
     };
 
+    // Quick-copy the account as a credential line, in the formats the upload / list
+    // tools consume. Values are read live from the fields above (edited-but-unsaved
+    // included). STT is an editable sequence number — two of the formats carry it.
+    const stt = el('input', {
+        type: 'text', value: '1', title: 'STT (sequence number)',
+        style: 'width:54px; font-family:var(--mono); font-size:12px; padding:3px 6px; background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px; box-sizing:border-box'
+    });
+    const S = () => acctName.value.trim();      // steam login name
+    const P = () => steamPw.value;              // steam password
+    const E = () => email.value.trim();         // email
+    const Q = () => emailPw.value;              // email password
+    const N = () => stt.value.trim();           // STT
+    const copyLine = (text, label) => navigator.clipboard?.writeText(text).then(() => toast(`Copied: ${label}`), () => toast('Copy failed', true));
+    const fmtBtn = (label, build) => {
+        const b = el('button', { className: 'act', type: 'button', style: 'font-size:11px; padding:3px 9px' }, label);
+        b.onclick = () => copyLine(build(), label);
+        return b;
+    };
+    const copyBlock = el('div', { style: 'border-top:1px solid var(--border); margin:14px 0 10px; padding-top:10px' },
+        el('div', { style: 'font-size:12px; color:var(--muted); margin-bottom:6px' }, 'Copy as line'),
+        el('div', { className: 'toolbar', style: 'gap:6px; flex-wrap:wrap; align-items:center' },
+            el('span', { style: 'font-size:11px; color:var(--muted)' }, 'STT'), stt,
+            fmtBtn('steam----pass', () => `${S()}----${P()}`),
+            fmtBtn('STT|email|pass|steam|pass', () => `${N()}|${E()}|${Q()}|${S()}|${P()}`),
+            fmtBtn('STT|email|pass|steam|steam----pass', () => `${N()}|${E()}|${Q()}|${S()}|${S()}----${P()}`))
+    );
+
     return el('div', { style: 'max-width:560px' },
         el('div', { className: 'dim', style: 'font-size:12px; margin-bottom:12px' }, '⚠ Plaintext, stored in the database and visible to anyone with the dashboard token. Never share a screenshot.'),
         row('Steam login name', acctName),
         row('Steam password', steamPw, copyBtn(steamPw)),
+        copyBlock,
         el('div', { style: 'border-top:1px solid var(--border); margin:14px 0 10px; padding-top:10px; font-size:12px; color:var(--muted)' }, 'Mailbox (email:pass:refresh_token:client_id)'),
         row('Email', email),
         row('Email password', emailPw, copyBtn(emailPw)),

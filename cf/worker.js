@@ -375,6 +375,15 @@ async function handleIngest(env, b) {
             return (await first('SELECT steam_id, account_name FROM accounts WHERE lower(account_name) = lower(?)', b.name)) || null;
         case 'friendSteamIDs':
             return (await all('SELECT friend_steam_id FROM friends WHERE account_steam_id = ?', b.accountSteamID)).map((r) => r.friend_steam_id);
+        case 'mailTokenAccounts': {
+            const sel = "SELECT steam_id, account_name, email, email_refresh_token, email_client_id, email_token_refreshed_at FROM accounts WHERE email_refresh_token IS NOT NULL AND email_refresh_token != '' AND email_client_id IS NOT NULL AND email_client_id != ''";
+            if (b.dueDays == null) return all(sel);
+            const cutoff = ts - b.dueDays * 86400;
+            return all(sel + ' AND (email_token_refreshed_at IS NULL OR email_token_refreshed_at <= ?)', cutoff);
+        }
+        case 'saveEmailRefreshToken':
+            await run('UPDATE accounts SET email_refresh_token = ?, email_token_refreshed_at = ?, updated_at = ? WHERE steam_id = ?', b.refreshToken, ts, ts, b.steamID);
+            return true;
         case 'walletRefreshSelection': {
             const [tokened, skip, lent] = await Promise.all([
                 all('SELECT account_name AS username FROM auth_tokens ORDER BY account_name'),
@@ -532,6 +541,7 @@ async function handleApi(req, env, url) {
 
     if (method === 'POST' && p === '/api/scan') return proxyToBox(req, env, url);
     if (method === 'POST' && p === '/api/email-tokens') return proxyToBox(req, env, url); // box updates SQLite + mirrors to D1
+    if (method === 'POST' && p === '/api/email-tokens/refresh') return proxyToBox(req, env, url); // box calls Microsoft to rotate tokens
     if (method === 'POST' && p === '/api/wallets/refresh') return proxyToBox(req, env, url);
     if (p === '/api/jobs' || /^\/api\/jobs\//.test(p)) return proxyToBox(req, env, url); // job state lives on the box
 

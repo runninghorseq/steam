@@ -255,6 +255,26 @@ async function removeFriendRows(accountSteamID, friendSteamIDs) {
         d1n.d1run(`DELETE FROM friends WHERE account_steam_id = ? AND friend_steam_id IN (${ids.map(() => '?').join(', ')})`, [accountSteamID, ...ids])));
 }
 
+// --- mailbox OAuth token rotation -------------------------------------------
+
+// Accounts that have a mailbox refresh token + client id to rotate. dueDays, if
+// set, limits to tokens last refreshed more than that many days ago (or never).
+const MAIL_SELECT = 'SELECT steam_id, account_name, email, email_refresh_token, email_client_id, email_token_refreshed_at FROM accounts WHERE email_refresh_token IS NOT NULL AND email_refresh_token != \'\' AND email_client_id IS NOT NULL AND email_client_id != \'\'';
+async function mailTokenAccounts({ dueDays = null } = {}) {
+    if (USE_WORKER) return wcall('mailTokenAccounts', { dueDays });
+    const cutoff = dueDays != null ? now() - dueDays * 86400 : null;
+    const sql = MAIL_SELECT + (cutoff != null ? ' AND (email_token_refreshed_at IS NULL OR email_token_refreshed_at <= ?)' : '');
+    if (!USE_D1) return cutoff != null ? L().db.prepare(sql).all(cutoff) : L().db.prepare(sql).all();
+    return d1n.d1all(sql, cutoff != null ? [cutoff] : []);
+}
+
+// Store a freshly-rotated mailbox refresh token and stamp the rotation time.
+async function saveEmailRefreshToken(steamID, refreshToken) {
+    if (USE_WORKER) return wcall('saveEmailRefreshToken', { steamID, refreshToken });
+    if (!USE_D1) return L().updateCredentials(steamID, { email_refresh_token: refreshToken });
+    await d1n.d1run('UPDATE accounts SET email_refresh_token = ?, email_token_refreshed_at = ?, updated_at = ? WHERE steam_id = ?', [refreshToken, now(), now(), steamID]);
+}
+
 // --- small reads the job endpoints need -------------------------------------
 
 async function accountNameBySteamID(steamID) {
@@ -306,6 +326,6 @@ module.exports = {
     getRefreshToken, saveRefreshToken, clearRefreshToken,
     saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts, saveGamePlaytime, reconcileSentGifts,
     accountNameBySteamID, accountBySteamID, accountByName, removeFriendRows,
-    walletRefreshSelection, friendSteamIDs,
+    walletRefreshSelection, friendSteamIDs, mailTokenAccounts, saveEmailRefreshToken,
     parseGiftedAt,
 };

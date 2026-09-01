@@ -29,6 +29,7 @@ const { updateWalletLevel } = require('./update_wallet_level');
 const { reloadFriends } = require('./reload_friends');
 const { fetchPlaytime } = require('./steam_playtime');
 const { removeFriends } = require('./remove_friends');
+const { refreshMailTokens } = require('./refresh_email_token');
 const gift = require('./gift_api');
 const { removeAccount } = require('./remove_account');
 
@@ -524,18 +525,24 @@ function sendJSON(res, code, body) {
     res.end(payload);
 }
 
-function readBody(req) {
+// 10 MB cap: bulk uploads (account lists, and email-token batches whose OAuth
+// refresh tokens are ~1 KB each) are large but bounded. Abort cleanly when over.
+const MAX_BODY_BYTES = 10e6;
+function readBody(req, maxBytes = MAX_BODY_BYTES) {
     return new Promise((resolve, reject) => {
         let raw = '';
+        let aborted = false;
         req.on('data', (c) => {
+            if (aborted) return;
             raw += c;
-            if (raw.length > 1e6) reject(new Error('body too large'));
+            if (raw.length > maxBytes) { aborted = true; req.destroy(); reject(new Error(`body too large (max ${Math.round(maxBytes / 1e6)} MB)`)); }
         });
         req.on('end', () => {
+            if (aborted) return;
             if (!raw) return resolve({});
             try { resolve(JSON.parse(raw)); } catch (err) { reject(err); }
         });
-        req.on('error', reject);
+        req.on('error', (err) => { if (!aborted) reject(err); });
     });
 }
 
@@ -967,6 +974,23 @@ async function handleAPI(req, res, url) {
         });
         tx();
         return sendJSON(res, 200, { updated: updated.length, updated_names: updated, not_found: notFound, invalid });
+    }
+
+    // Rotate stored mailbox OAuth tokens against Microsoft before they expire.
+    if (method === 'POST' && p === '/api/email-tokens/refresh') {
+        const b = await readBody(req);
+        const dueDays = b.dueDays != null && b.dueDays !== '' ? Number(b.dueDays) : null;
+        const emails = Array.isArray(b.emails) && b.emails.length ? b.emails : null;
+        const job = makeJob('email-refresh', { total: 0 });
+        enqueueSteamJob(job, async () => {
+            job.status = 'running'; job.started_at = now();
+            const r = await refreshMailTokens({ dueDays, emails, dryRun: !!b.dryRun, log: (...a) => jobLog(job, a.join(' ')) });
+            job.total = r.total; job.done = r.total; job.ok = r.ok; job.failed = r.failed.length;
+            r.failed.forEach((f) => job.results.push({ username: f.email, ok: false, reason: f.reason }));
+            job.status = 'done'; job.finished_at = now();
+            jobLog(job, `Done: ${r.ok}/${r.total} rotated, ${r.failed.length} failed.`);
+        });
+        return sendJSON(res, 202, jobView(job, false));
     }
 
     if (method === 'GET' && p === '/api/jobs') {
