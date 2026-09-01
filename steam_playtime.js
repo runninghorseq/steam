@@ -15,7 +15,8 @@
 
 const SteamUser = require('steam-user');
 const SteamCommunity = require('steamcommunity');
-const { db, saveGamePlaytime, getRefreshToken, saveRefreshToken, clearRefreshToken } = require('./db');
+const { db } = require('./db');
+const store = require('./store');
 const { fetchCommunityPage } = require('./steam_helpers');
 
 // Parse the community games page. The new React page embeds the games as a
@@ -54,10 +55,10 @@ function fetchPlaytime(account, opts = {}) {
 
         client.on('error', (err) => {
             log(`${tag} error:`, err.message);
-            if (/InvalidPassword|AccessDenied|Expired/i.test(err.message)) { clearRefreshToken(account.username); log(`${tag} cleared cached refresh token`); }
+            if (/InvalidPassword|AccessDenied|Expired/i.test(err.message)) { store.clearRefreshToken(account.username).catch(() => {}); log(`${tag} cleared cached refresh token`); }
             finish({ ok: false, reason: err.message, username: account.username });
         });
-        client.on('refreshToken', (token) => saveRefreshToken(account.username, token));
+        client.on('refreshToken', (token) => store.saveRefreshToken(account.username, token).catch(() => {}));
         client.on('loggedOn', () => {
             steamID = client.steamID.getSteamID64();
             log(`${tag} logged in: ${steamID}`);
@@ -74,17 +75,23 @@ function fetchPlaytime(account, opts = {}) {
                 return finish({ ok: false, reason, username: account.username });
             }
             const games = parseGamesPage(data);
-            saveGamePlaytime(steamID, games);
+            try {
+                await store.saveGamePlaytime(steamID, games);
+            } catch (e) {
+                log(`${tag} playtime save failed: ${e.message || e}`);
+                return finish({ ok: false, reason: `playtime save failed: ${e.message || e}`, username: account.username });
+            }
             const totalMin = games.reduce((s, g) => s + (g.playtime_forever || 0), 0);
             const played = games.filter((g) => (g.playtime_forever || 0) > 0).length;
             log(`${tag} ${games.length} games (${played} played), ${(totalMin / 60).toFixed(1)} h total`);
             finish({ ok: true, username: account.username, count: games.length, played, total_minutes: totalMin });
         });
 
-        const token = getRefreshToken(account.username);
-        if (token) { log(`${tag} using cached refresh token`); client.logOn({ refreshToken: token }); }
-        else if (account.password) { log(`${tag} no token — using password`); client.logOn({ accountName: account.username, password: account.password }); }
-        else finish({ ok: false, reason: 'no token and no password', username: account.username });
+        store.getRefreshToken(account.username).then((token) => {
+            if (token) { log(`${tag} using cached refresh token`); client.logOn({ refreshToken: token }); }
+            else if (account.password) { log(`${tag} no token — using password`); client.logOn({ accountName: account.username, password: account.password }); }
+            else finish({ ok: false, reason: 'no token and no password', username: account.username });
+        }).catch((e) => finish({ ok: false, reason: e.message, username: account.username }));
     });
 }
 
@@ -139,7 +146,6 @@ if (require.main === module) {
             const totalGames = ok.reduce((s, r) => s + (r.count || 0), 0);
             console.log(`\n=== Done: ${ok.length}/${results.length} ok, ${totalGames} games recorded ===`);
             failed.forEach((r) => console.log(`  FAIL ${r.username}: ${r.reason}`));
-            await require('./d1_mirror').flushNow();
             process.exit(0);
         });
 }

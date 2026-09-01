@@ -6,8 +6,14 @@ const mirror = require('./d1_mirror'); // D1 write-through (no-op unless configu
 const DB_PATH = path.join(__dirname, 'steam_accounts.db');
 const SCHEMA_PATH = path.join(__dirname, 'schema.sql');
 
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
+// Stateless box: when WORKER_URL is set, all real data lives in the Worker/D1 and
+// this process must keep NO local database file. Open an in-memory DB instead —
+// it still satisfies the synchronous `db` handle that server.js and the CLIs
+// expect, but nothing is persisted to disk (those local reads are unused in
+// production, where the Worker serves them).
+const STATELESS = !!(process.env.WORKER_URL || '').trim();
+const db = new Database(STATELESS ? ':memory:' : DB_PATH);
+if (!STATELESS) db.pragma('journal_mode = WAL');
 db.exec(fs.readFileSync(SCHEMA_PATH, 'utf8'));
 
 // Lightweight migrations: add columns introduced after a DB was first created

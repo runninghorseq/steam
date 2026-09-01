@@ -1,23 +1,30 @@
-// Unified async data layer for the box's Steam-login job workers.
+// Unified async data layer for the box's Steam-login job workers. Three modes,
+// chosen by environment (checked in this order):
 //
-//   - If CF_* env is set (CF_ACCOUNT_ID / CF_D1_DATABASE_ID / CF_API_TOKEN),
-//     everything reads/writes Cloudflare D1 directly — the box touches NO local
-//     database, and the dashboard (also on D1) stays consistent.
-//   - Otherwise it delegates to the local better-sqlite3 db.js, so local dev and
-//     the CLI keep working exactly as before.
+//   1. WORKER mode — WORKER_URL set: the box owns NO data. Every read/write is a
+//      POST to the Worker's /api/ingest endpoint (auth: DASHBOARD_TOKEN), and the
+//      Worker is the single writer to D1. The box needs no DB and no CF creds.
+//   2. D1-direct mode — CF_* set: the box writes Cloudflare D1 itself over the
+//      REST API (cf/d1_node.js). Kept for flexibility; not used by a stateless box.
+//   3. Local mode — neither set: delegates to the local better-sqlite3 db.js, so
+//      local dev and the CLIs keep working exactly as before.
 //
-// All functions are async; callers must await. The D1 SQL mirrors db.js's
-// upserts (COALESCE where db.js preserves fields like friends.gifted_at, so a
-// scan never wipes gift history).
+// All functions are async; callers must await.
 
-const local = require('./db');
+const parseGiftedAt = require('./parse_gifted_at');
 const d1n = require('./cf/d1_node');
-const parseGiftedAt = local.parseGiftedAt;
 
-const USE_D1 = d1n.enabled();
+// db.js opens a SQLite file on require, so only load it in local mode — a
+// stateless (WORKER) box must never touch a local database.
+let _local = null;
+const L = () => (_local || (_local = require('./db')));
+
+const WORKER_URL = (process.env.WORKER_URL || '').trim().replace(/\/+$/, '');
+const WORKER_TOKEN = (process.env.DASHBOARD_TOKEN || process.env.STEAM_API_TOKEN || '').trim();
+const USE_WORKER = !!WORKER_URL;
+const USE_D1 = !USE_WORKER && d1n.enabled();
+
 const now = () => Math.floor(Date.now() / 1000);
-
-// Chunk helper so multi-row INSERTs stay under D1's bound-param cap (~900).
 function chunk(rows, colsLen) {
     const per = Math.max(1, Math.floor(900 / colsLen));
     const out = [];
@@ -25,15 +32,39 @@ function chunk(rows, colsLen) {
     return out;
 }
 
+// --- WORKER mode transport --------------------------------------------------
+// One generic endpoint takes {op, ...args} and returns {result}. Keeping it to a
+// single call site means the box side of every function is one line.
+async function wcall(op, args = {}) {
+    const headers = {
+        'Content-Type': 'application/json',
+        // Cloudflare fronts the domain and blocks non-browser signatures.
+        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+    };
+    if (WORKER_TOKEN) headers['X-Dashboard-Token'] = WORKER_TOKEN;
+    let res;
+    try {
+        res = await fetch(`${WORKER_URL}/api/ingest`, { method: 'POST', headers, body: JSON.stringify({ op, ...args }) });
+    } catch (e) {
+        throw new Error(`ingest ${op}: Worker unreachable at ${WORKER_URL} (${e.message})`);
+    }
+    if (res.status === 401) throw new Error(`ingest ${op}: 401 unauthorized — set DASHBOARD_TOKEN to match the Worker`);
+    if (!res.ok) throw new Error(`ingest ${op} -> HTTP ${res.status}: ${(await res.text()).slice(0, 160)}`);
+    const j = await res.json().catch(() => ({}));
+    return j.result;
+}
+
 // --- tokens -----------------------------------------------------------------
 
 async function getRefreshToken(accountName) {
-    if (!USE_D1) return local.getRefreshToken(accountName);
+    if (USE_WORKER) return wcall('getRefreshToken', { accountName });
+    if (!USE_D1) return L().getRefreshToken(accountName);
     const r = await d1n.d1first('SELECT refresh_token FROM auth_tokens WHERE account_name = ?', [accountName]);
     return r ? r.refresh_token : null;
 }
 async function saveRefreshToken(accountName, token) {
-    if (!USE_D1) return local.saveRefreshToken(accountName, token);
+    if (USE_WORKER) return wcall('saveRefreshToken', { accountName, token });
+    if (!USE_D1) return L().saveRefreshToken(accountName, token);
     const ts = now();
     await d1n.d1run(
         'INSERT INTO auth_tokens (account_name, refresh_token, created_at, updated_at) VALUES (?, ?, ?, ?) '
@@ -41,17 +72,18 @@ async function saveRefreshToken(accountName, token) {
         [accountName, token, ts, ts]);
 }
 async function clearRefreshToken(accountName) {
-    if (!USE_D1) return local.clearRefreshToken(accountName);
+    if (USE_WORKER) return wcall('clearRefreshToken', { accountName });
+    if (!USE_D1) return L().clearRefreshToken(accountName);
     await d1n.d1run('DELETE FROM auth_tokens WHERE account_name = ?', [accountName]);
 }
 
 // --- accounts ---------------------------------------------------------------
 
 async function saveAccount(partial) {
-    if (!USE_D1) return local.saveAccount(partial);
+    if (USE_WORKER) return wcall('saveAccount', { partial });
+    if (!USE_D1) return L().saveAccount(partial);
     const p = { ...partial };
-    // Loan freeze: a loaned account's wallet/level are the borrower's — don't
-    // overwrite. Only need the check when those fields are actually present.
+    // Loan freeze: a loaned account's wallet/level are the borrower's — don't overwrite.
     if (p.wallet_currency != null || p.wallet_balance_cents != null || p.steam_level != null) {
         const row = await d1n.d1first('SELECT loan_id FROM accounts WHERE steam_id = ?', [p.steam_id]);
         if (row && row.loan_id != null) { p.wallet_currency = null; p.wallet_balance_cents = null; p.steam_level = null; }
@@ -79,7 +111,8 @@ async function saveAccount(partial) {
 // --- friends (COALESCE upsert — preserves gifted_at/gifted_game/country) ------
 
 async function saveFriends(accountSteamID, friends) {
-    if (!USE_D1) return local.saveFriends(accountSteamID, friends);
+    if (USE_WORKER) return wcall('saveFriends', { accountSteamID, friends });
+    if (!USE_D1) return L().saveFriends(accountSteamID, friends);
     if (!friends.length) return;
     const ts = now();
     const cols = ['account_steam_id', 'friend_steam_id', 'friend_name', 'friend_level', 'added_at', 'relationship', 'created_at', 'updated_at'];
@@ -100,7 +133,8 @@ async function saveFriends(accountSteamID, friends) {
 // --- licenses (+ apps): replace this account's set --------------------------
 
 async function saveLicenses(accountSteamID, licenses) {
-    if (!USE_D1) return local.saveLicenses(accountSteamID, licenses);
+    if (USE_WORKER) return wcall('saveLicenses', { accountSteamID, licenses });
+    if (!USE_D1) return L().saveLicenses(accountSteamID, licenses);
     const ts = now();
     await d1n.d1run('DELETE FROM license_apps WHERE account_steam_id = ?', [accountSteamID]);
     await d1n.d1run('DELETE FROM licenses WHERE account_steam_id = ?', [accountSteamID]);
@@ -119,10 +153,26 @@ async function saveLicenses(accountSteamID, licenses) {
     }
 }
 
+// --- game playtime: replace this account's snapshot -------------------------
+
+async function saveGamePlaytime(accountSteamID, games) {
+    if (USE_WORKER) return wcall('saveGamePlaytime', { accountSteamID, games });
+    if (!USE_D1) return L().saveGamePlaytime(accountSteamID, games);
+    const ts = now();
+    await d1n.d1run('DELETE FROM game_playtime WHERE account_steam_id = ?', [accountSteamID]);
+    const cols = ['account_steam_id', 'app_id', 'name', 'playtime_forever', 'playtime_2weeks', 'scanned_at', 'created_at', 'updated_at'];
+    const rows = games.map((g) => [accountSteamID, g.app_id ?? g.appid, g.name ?? null, g.playtime_forever ?? 0, g.playtime_2weeks ?? 0, ts, ts, ts]);
+    if (rows.length) {
+        const t = `(${cols.map(() => '?').join(', ')})`;
+        for (const c of chunk(rows, cols.length)) await d1n.d1run(`INSERT OR REPLACE INTO game_playtime (${cols.join(', ')}) VALUES ${c.map(() => t).join(', ')}`, c.flat());
+    }
+}
+
 // --- pending gifts: replace, and stamp the friend's gifted_at ---------------
 
 async function saveGifts(accountSteamID, gifts) {
-    if (!USE_D1) return local.saveGifts(accountSteamID, gifts);
+    if (USE_WORKER) return wcall('saveGifts', { accountSteamID, gifts });
+    if (!USE_D1) return L().saveGifts(accountSteamID, gifts);
     const ts = now();
     await d1n.d1run('DELETE FROM pending_gifts WHERE account_steam_id = ?', [accountSteamID]);
     for (const g of gifts) {
@@ -140,7 +190,8 @@ async function saveGifts(accountSteamID, gifts) {
 // --- sent gifts: replace this account's snapshot ----------------------------
 
 async function saveSentGifts(accountSteamID, gifts) {
-    if (!USE_D1) return local.saveSentGifts(accountSteamID, gifts);
+    if (USE_WORKER) return wcall('saveSentGifts', { accountSteamID, gifts });
+    if (!USE_D1) return L().saveSentGifts(accountSteamID, gifts);
     const ts = now();
     await d1n.d1run('DELETE FROM sent_gifts WHERE account_steam_id = ?', [accountSteamID]);
     for (const g of gifts) {
@@ -153,16 +204,17 @@ async function saveSentGifts(accountSteamID, gifts) {
 
 // reconcile for the sent-gift sync: prune gift_ids no longer live, upsert live.
 async function reconcileSentGifts(accountSteamID, liveGifts) {
+    if (USE_WORKER) return wcall('reconcileSentGifts', { accountSteamID, liveGifts });
     if (!USE_D1) {
         const ts = now();
         const live = new Set(liveGifts.map((g) => g.gift_id));
-        const existing = local.db.prepare('SELECT gift_id FROM sent_gifts WHERE account_steam_id = ?').all(accountSteamID).map((r) => r.gift_id);
+        const existing = L().db.prepare('SELECT gift_id FROM sent_gifts WHERE account_steam_id = ?').all(accountSteamID).map((r) => r.gift_id);
         const deleted = existing.filter((id) => !live.has(id));
-        const del = local.db.prepare('DELETE FROM sent_gifts WHERE account_steam_id = ? AND gift_id = ?');
-        const up = local.db.prepare(
+        const del = L().db.prepare('DELETE FROM sent_gifts WHERE account_steam_id = ? AND gift_id = ?');
+        const up = L().db.prepare(
             'INSERT OR REPLACE INTO sent_gifts (gift_id, account_steam_id, recipient_steam_id, recipient_name, item_name, detail, sent_at, status, store_url, scanned_at, created_at, updated_at) '
             + 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-        local.db.transaction(() => {
+        L().db.transaction(() => {
             for (const id of deleted) del.run(accountSteamID, id);
             for (const g of liveGifts) up.run(g.gift_id, accountSteamID, g.recipient_steam_id ?? null, g.recipient_name ?? null, g.item_name ?? null, g.detail ?? null, parseGiftedAt(g.sent_at), g.status ?? null, g.store_url ?? null, ts, ts, ts);
         })();
@@ -184,10 +236,11 @@ async function reconcileSentGifts(accountSteamID, liveGifts) {
 
 // Delete specific friend rows for an account (used after remove-friends).
 async function removeFriendRows(accountSteamID, friendSteamIDs) {
+    if (USE_WORKER) return wcall('removeFriendRows', { accountSteamID, friendSteamIDs });
     if (!friendSteamIDs.length) return;
     if (!USE_D1) {
-        const del = local.db.prepare('DELETE FROM friends WHERE account_steam_id = ? AND friend_steam_id = ?');
-        local.db.transaction(() => { for (const id of friendSteamIDs) del.run(accountSteamID, id); })();
+        const del = L().db.prepare('DELETE FROM friends WHERE account_steam_id = ? AND friend_steam_id = ?');
+        L().db.transaction(() => { for (const id of friendSteamIDs) del.run(accountSteamID, id); })();
         return;
     }
     for (const id of friendSteamIDs) await d1n.d1run('DELETE FROM friends WHERE account_steam_id = ? AND friend_steam_id = ?', [accountSteamID, id]);
@@ -196,22 +249,26 @@ async function removeFriendRows(accountSteamID, friendSteamIDs) {
 // --- small reads the job endpoints need -------------------------------------
 
 async function accountNameBySteamID(steamID) {
-    if (!USE_D1) { const r = local.db.prepare('SELECT account_name FROM accounts WHERE steam_id = ?').get(steamID); return r ? r.account_name : null; }
+    if (USE_WORKER) return wcall('accountNameBySteamID', { steamID });
+    if (!USE_D1) { const r = L().db.prepare('SELECT account_name FROM accounts WHERE steam_id = ?').get(steamID); return r ? r.account_name : null; }
     const r = await d1n.d1first('SELECT account_name FROM accounts WHERE steam_id = ?', [steamID]);
     return r ? r.account_name : null;
 }
 async function accountBySteamID(steamID) {
-    if (!USE_D1) return local.db.prepare('SELECT steam_id, account_name FROM accounts WHERE steam_id = ?').get(steamID) || null;
+    if (USE_WORKER) return wcall('accountBySteamID', { steamID });
+    if (!USE_D1) return L().db.prepare('SELECT steam_id, account_name FROM accounts WHERE steam_id = ?').get(steamID) || null;
     return d1n.d1first('SELECT steam_id, account_name FROM accounts WHERE steam_id = ?', [steamID]);
 }
 async function accountByName(name) {
-    if (!USE_D1) return local.db.prepare('SELECT steam_id, account_name FROM accounts WHERE lower(account_name) = lower(?)').get(name) || null;
+    if (USE_WORKER) return wcall('accountByName', { name });
+    if (!USE_D1) return L().db.prepare('SELECT steam_id, account_name FROM accounts WHERE lower(account_name) = lower(?)').get(name) || null;
     return d1n.d1first('SELECT steam_id, account_name FROM accounts WHERE lower(account_name) = lower(?)', [name]);
 }
 
 // The friend_steam_ids already recorded for an account (used to count new adds).
 async function friendSteamIDs(accountSteamID) {
-    if (!USE_D1) return local.db.prepare('SELECT friend_steam_id FROM friends WHERE account_steam_id = ?').all(accountSteamID).map((r) => r.friend_steam_id);
+    if (USE_WORKER) return wcall('friendSteamIDs', { accountSteamID });
+    if (!USE_D1) return L().db.prepare('SELECT friend_steam_id FROM friends WHERE account_steam_id = ?').all(accountSteamID).map((r) => r.friend_steam_id);
     const rows = await d1n.d1all('SELECT friend_steam_id FROM friends WHERE account_steam_id = ?', [accountSteamID]);
     return rows.map((r) => r.friend_steam_id);
 }
@@ -219,11 +276,12 @@ async function friendSteamIDs(accountSteamID) {
 // Selection for the bulk wallet refresh (mirrors update_wallet_level.js CLI):
 // every tokened account name, plus the sets to exclude (skip_wallet, loaned).
 async function walletRefreshSelection() {
+    if (USE_WORKER) return wcall('walletRefreshSelection', {});
     if (!USE_D1) {
         return {
-            tokened: local.db.prepare('SELECT account_name AS username FROM auth_tokens ORDER BY account_name').all(),
-            skip: local.db.prepare("SELECT account_name FROM accounts WHERE skip_wallet = 1 AND account_name IS NOT NULL").all(),
-            lent: local.db.prepare("SELECT account_name FROM accounts WHERE loan_id IS NOT NULL AND account_name IS NOT NULL").all(),
+            tokened: L().db.prepare('SELECT account_name AS username FROM auth_tokens ORDER BY account_name').all(),
+            skip: L().db.prepare("SELECT account_name FROM accounts WHERE skip_wallet = 1 AND account_name IS NOT NULL").all(),
+            lent: L().db.prepare("SELECT account_name FROM accounts WHERE loan_id IS NOT NULL AND account_name IS NOT NULL").all(),
         };
     }
     const [tokened, skip, lent] = await Promise.all([
@@ -235,9 +293,9 @@ async function walletRefreshSelection() {
 }
 
 module.exports = {
-    USE_D1,
+    USE_D1, USE_WORKER,
     getRefreshToken, saveRefreshToken, clearRefreshToken,
-    saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts, reconcileSentGifts,
+    saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts, saveGamePlaytime, reconcileSentGifts,
     accountNameBySteamID, accountBySteamID, accountByName, removeFriendRows,
     walletRefreshSelection, friendSteamIDs,
     parseGiftedAt,

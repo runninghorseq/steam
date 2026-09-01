@@ -12,9 +12,12 @@
 
 const https = require('https');
 
-const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID || '';
-const CF_D1_DATABASE_ID = process.env.CF_D1_DATABASE_ID || '';
-const CF_API_TOKEN = process.env.CF_API_TOKEN || '';
+// Trim whitespace/CR and strip surrounding quotes so a stray char in the id
+// can't land in the request path (ERR_UNESCAPED_CHARACTERS).
+const clean = (v) => (v || '').trim().replace(/^["']|["']$/g, '');
+const CF_ACCOUNT_ID = clean(process.env.CF_ACCOUNT_ID);
+const CF_D1_DATABASE_ID = clean(process.env.CF_D1_DATABASE_ID);
+const CF_API_TOKEN = clean(process.env.CF_API_TOKEN);
 
 const enabled = () => !!(CF_ACCOUNT_ID && CF_D1_DATABASE_ID && CF_API_TOKEN);
 

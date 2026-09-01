@@ -15,9 +15,13 @@ const https = require('https');
 const http = require('http');
 // Override the API host for testing/self-hosted (e.g. 127.0.0.1:9999 uses http).
 
-const ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '';
-const DB_ID = process.env.D1_DATABASE_ID || '';
-const TOKEN = process.env.CLOUDFLARE_API_TOKEN || '';
+// Trim stray whitespace / CR (CRLF .env files) and strip surrounding quotes —
+// a stray char in ACCOUNT_ID/DB_ID goes into the request path and throws
+// ERR_UNESCAPED_CHARACTERS ("Request path contains unescaped characters").
+const clean = (v) => (v || '').trim().replace(/^["']|["']$/g, '');
+const ACCOUNT_ID = clean(process.env.CLOUDFLARE_ACCOUNT_ID);
+const DB_ID = clean(process.env.D1_DATABASE_ID);
+const TOKEN = clean(process.env.CLOUDFLARE_API_TOKEN);
 const active = process.env.D1_MIRROR === '1' && !!(ACCOUNT_ID && DB_ID && TOKEN);
 
 const MAX_BATCH = 200;

@@ -178,7 +178,6 @@ if (require.main === module) {
             const totalDeleted = ok.reduce((sum, r) => sum + (r.deleted?.length || 0), 0);
             console.log(`\n=== Done: ${ok.length}/${results.length} ok, ${totalDeleted} sent gift(s) pruned ===`);
             failed.forEach((r) => console.log(`  FAIL ${r.username}: ${r.reason}`));
-            await require('./d1_mirror').flushNow();
             process.exit(0);
         });
 }

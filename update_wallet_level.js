@@ -323,7 +323,6 @@ if (require.main === module) {
             const failed = results.filter(r => !r?.ok);
             console.log(`\n=== Done: ${ok}/${results.length} ok ===`);
             failed.forEach(r => console.log(`  FAIL ${r.username}: ${r.reason}`));
-            await require('./d1_mirror').flushNow();
             process.exit(0);
         });
 }

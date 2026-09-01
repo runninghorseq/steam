@@ -238,10 +238,142 @@ async function recordGame2Gift(env, account, friend_name, friend_steam_id, item_
 
 // --- API routing ------------------------------------------------------------
 
+// Parse a Steam gift date string to a unix epoch (year omitted by Steam).
+// Kept in sync with parse_gifted_at.js on the box.
+function ingestGiftedAt(s) {
+    if (!s) return null;
+    const d = new Date(`${s} ${new Date().getFullYear()}`);
+    return Number.isFinite(d.getTime()) ? Math.floor(d.getTime() / 1000) : null;
+}
+
+// The single write path for the stateless box: it POSTs {op, ...args} here and
+// the Worker performs the D1 write/read, so the Worker is D1's only writer. The
+// SQL mirrors store.js's D1-direct branch (COALESCE upserts preserve gifted_at).
+async function handleIngest(env, b) {
+    const DB = env.DB;
+    const ts = Math.floor(Date.now() / 1000);
+    const run = (sql, ...pp) => DB.prepare(sql).bind(...pp).run();
+    const all = async (sql, ...pp) => (await DB.prepare(sql).bind(...pp).all()).results;
+    const first = (sql, ...pp) => DB.prepare(sql).bind(...pp).first();
+    const batchAll = async (stmts) => { for (let i = 0; i < stmts.length; i += 100) await DB.batch(stmts.slice(i, i + 100)); };
+
+    switch (b.op) {
+        case 'getRefreshToken': {
+            const r = await first('SELECT refresh_token FROM auth_tokens WHERE account_name = ?', b.accountName);
+            return r ? r.refresh_token : null;
+        }
+        case 'saveRefreshToken':
+            await run('INSERT INTO auth_tokens (account_name, refresh_token, created_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(account_name) DO UPDATE SET refresh_token = excluded.refresh_token, updated_at = excluded.updated_at', b.accountName, b.token, ts, ts);
+            return true;
+        case 'clearRefreshToken':
+            await run('DELETE FROM auth_tokens WHERE account_name = ?', b.accountName);
+            return true;
+        case 'saveAccount': {
+            const p = { ...(b.partial || {}) };
+            if (p.wallet_currency != null || p.wallet_balance_cents != null || p.steam_level != null) {
+                const row = await first('SELECT loan_id FROM accounts WHERE steam_id = ?', p.steam_id);
+                if (row && row.loan_id != null) { p.wallet_currency = null; p.wallet_balance_cents = null; p.steam_level = null; }
+            }
+            await run('INSERT INTO accounts (steam_id, account_name, persona, country, email, wallet_currency, wallet_balance_cents, steam_level, steam_points, source, scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(steam_id) DO UPDATE SET account_name = COALESCE(excluded.account_name, accounts.account_name), persona = COALESCE(excluded.persona, accounts.persona), country = COALESCE(excluded.country, accounts.country), email = COALESCE(excluded.email, accounts.email), wallet_currency = COALESCE(excluded.wallet_currency, accounts.wallet_currency), wallet_balance_cents = COALESCE(excluded.wallet_balance_cents, accounts.wallet_balance_cents), steam_level = COALESCE(excluded.steam_level, accounts.steam_level), steam_points = COALESCE(excluded.steam_points, accounts.steam_points), source = COALESCE(excluded.source, accounts.source), scanned_at = excluded.scanned_at, updated_at = excluded.updated_at',
+                p.steam_id, p.account_name ?? null, p.persona ?? null, p.country ?? null, p.email ?? null, p.wallet_currency ?? null, p.wallet_balance_cents ?? null, p.steam_level ?? null, p.steam_points ?? null, p.source ?? null, ts, ts, ts);
+            return true;
+        }
+        case 'saveFriends': {
+            const friends = b.friends || [];
+            if (!friends.length) return true;
+            const sql = 'INSERT INTO friends (account_steam_id, friend_steam_id, friend_name, friend_level, added_at, relationship, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(account_steam_id, friend_steam_id) DO UPDATE SET friend_name = COALESCE(excluded.friend_name, friends.friend_name), friend_level = COALESCE(excluded.friend_level, friends.friend_level), added_at = COALESCE(excluded.added_at, friends.added_at), relationship = COALESCE(excluded.relationship, friends.relationship), updated_at = excluded.updated_at';
+            await batchAll(friends.map((f) => DB.prepare(sql).bind(b.accountSteamID, f.steam_id, f.name ?? null, f.level ?? null, f.added_at ?? null, f.relationship ?? null, ts, ts)));
+            return true;
+        }
+        case 'saveLicenses': {
+            const licenses = b.licenses || [];
+            const stmts = [
+                DB.prepare('DELETE FROM license_apps WHERE account_steam_id = ?').bind(b.accountSteamID),
+                DB.prepare('DELETE FROM licenses WHERE account_steam_id = ?').bind(b.accountSteamID),
+            ];
+            const licSQL = 'INSERT OR REPLACE INTO licenses (account_steam_id, package_id, package_name, payment_method, license_type, purchased_at, territory_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
+            for (const l of licenses) stmts.push(DB.prepare(licSQL).bind(b.accountSteamID, l.package_id, l.package_name ?? null, l.payment_method ?? null, l.license_type ?? null, l.purchased_at ?? null, l.territory_code ?? null, ts, ts));
+            const appSQL = 'INSERT OR REPLACE INTO license_apps (account_steam_id, package_id, app_id, app_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)';
+            for (const l of licenses) for (const a of (l.apps || [])) stmts.push(DB.prepare(appSQL).bind(b.accountSteamID, l.package_id, a.app_id, a.app_name ?? null, ts, ts));
+            await batchAll(stmts);
+            return true;
+        }
+        case 'saveGifts': {
+            const gifts = b.gifts || [];
+            await run('DELETE FROM pending_gifts WHERE account_steam_id = ?', b.accountSteamID);
+            for (const g of gifts) {
+                await run('INSERT OR REPLACE INTO pending_gifts (gift_id, account_steam_id, item_name, detail, sender_steam_id, sender_name, sent_at, status, store_url, scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    g.gift_id, b.accountSteamID, g.item_name ?? null, g.detail ?? null, g.sender_steam_id ?? null, g.sender_name ?? null, g.sent_at ?? null, g.status ?? null, g.store_url ?? null, ts, ts, ts);
+                if (g.sender_steam_id) await run('UPDATE friends SET gifted_at = ?, gifted_game = ?, updated_at = ? WHERE account_steam_id = ? AND friend_steam_id = ?', ingestGiftedAt(g.sent_at), g.item_name ?? null, ts, b.accountSteamID, g.sender_steam_id);
+            }
+            return true;
+        }
+        case 'saveSentGifts': {
+            const gifts = b.gifts || [];
+            await run('DELETE FROM sent_gifts WHERE account_steam_id = ?', b.accountSteamID);
+            for (const g of gifts) {
+                await run('INSERT OR REPLACE INTO sent_gifts (gift_id, account_steam_id, recipient_steam_id, recipient_name, item_name, detail, sent_at, status, store_url, scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    g.gift_id, b.accountSteamID, g.recipient_steam_id ?? null, g.recipient_name ?? null, g.item_name ?? null, g.detail ?? null, ingestGiftedAt(g.sent_at), g.status ?? null, g.store_url ?? null, ts, ts, ts);
+            }
+            return true;
+        }
+        case 'reconcileSentGifts': {
+            const liveGifts = b.liveGifts || [];
+            const live = new Set(liveGifts.map((g) => g.gift_id));
+            const existing = (await all('SELECT gift_id FROM sent_gifts WHERE account_steam_id = ?', b.accountSteamID)).map((r) => r.gift_id);
+            const deleted = existing.filter((id) => !live.has(id));
+            for (const id of deleted) await run('DELETE FROM sent_gifts WHERE account_steam_id = ? AND gift_id = ?', b.accountSteamID, id);
+            for (const g of liveGifts) {
+                await run('INSERT OR REPLACE INTO sent_gifts (gift_id, account_steam_id, recipient_steam_id, recipient_name, item_name, detail, sent_at, status, store_url, scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                    g.gift_id, b.accountSteamID, g.recipient_steam_id ?? null, g.recipient_name ?? null, g.item_name ?? null, g.detail ?? null, ingestGiftedAt(g.sent_at), g.status ?? null, g.store_url ?? null, ts, ts, ts);
+            }
+            return { kept: liveGifts.length, deleted };
+        }
+        case 'saveGamePlaytime': {
+            const games = b.games || [];
+            const stmts = [DB.prepare('DELETE FROM game_playtime WHERE account_steam_id = ?').bind(b.accountSteamID)];
+            const sql = 'INSERT OR REPLACE INTO game_playtime (account_steam_id, app_id, name, playtime_forever, playtime_2weeks, scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)';
+            for (const g of games) stmts.push(DB.prepare(sql).bind(b.accountSteamID, g.app_id ?? g.appid, g.name ?? null, g.playtime_forever ?? 0, g.playtime_2weeks ?? 0, ts, ts, ts));
+            await batchAll(stmts);
+            return true;
+        }
+        case 'removeFriendRows': {
+            for (const id of (b.friendSteamIDs || [])) await run('DELETE FROM friends WHERE account_steam_id = ? AND friend_steam_id = ?', b.accountSteamID, id);
+            return true;
+        }
+        case 'accountNameBySteamID': {
+            const r = await first('SELECT account_name FROM accounts WHERE steam_id = ?', b.steamID);
+            return r ? r.account_name : null;
+        }
+        case 'accountBySteamID':
+            return (await first('SELECT steam_id, account_name FROM accounts WHERE steam_id = ?', b.steamID)) || null;
+        case 'accountByName':
+            return (await first('SELECT steam_id, account_name FROM accounts WHERE lower(account_name) = lower(?)', b.name)) || null;
+        case 'friendSteamIDs':
+            return (await all('SELECT friend_steam_id FROM friends WHERE account_steam_id = ?', b.accountSteamID)).map((r) => r.friend_steam_id);
+        case 'walletRefreshSelection': {
+            const [tokened, skip, lent] = await Promise.all([
+                all('SELECT account_name AS username FROM auth_tokens ORDER BY account_name'),
+                all("SELECT account_name FROM accounts WHERE skip_wallet = 1 AND account_name IS NOT NULL"),
+                all("SELECT account_name FROM accounts WHERE loan_id IS NOT NULL AND account_name IS NOT NULL"),
+            ]);
+            return { tokened, skip, lent };
+        }
+        default:
+            throw new Error(`unknown ingest op: ${b.op}`);
+    }
+}
+
 async function handleApi(req, env, url) {
     const p = url.pathname;
     const method = req.method;
     const body = async () => req.json().catch(() => ({}));
+
+    // Stateless-box write/read path: the box POSTs {op, ...args}; Worker owns D1.
+    if (method === 'POST' && p === '/api/ingest') {
+        try { return json({ result: await handleIngest(env, await body()) }); }
+        catch (e) { return json({ error: e.message }, 400); }
+    }
 
     if (method === 'GET' && p === '/api/summary') return json(await summary(env));
 
