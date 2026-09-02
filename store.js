@@ -12,7 +12,11 @@
 // All functions are async; callers must await.
 
 const parseGiftedAt = require('./parse_gifted_at');
-const d1n = require('./cf/d1_node');
+// Remote SQL backend: Turso (libSQL) when TURSO_DATABASE_URL is set, else
+// Cloudflare D1. Both expose the same d1all/d1first/d1run interface, so every
+// query below is identical (libSQL is a SQLite fork — no D1 100-param cap).
+const turso = require('./cf/turso');
+const d1n = turso.enabled() ? turso : require('./cf/d1_node');
 
 // db.js opens a SQLite file on require, so only load it in local mode — a
 // stateless (WORKER) box must never touch a local database.

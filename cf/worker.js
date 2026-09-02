@@ -7,6 +7,8 @@
 // every request, via ?token= (sets a cookie), the dash_token cookie, an
 // X-Dashboard-Token header, or Authorization: Bearer.
 
+import { createClient } from '@libsql/client/web';
+
 const now = () => Math.floor(Date.now() / 1000);
 
 function json(body, status = 200, extraHeaders = {}) {
@@ -82,6 +84,30 @@ function maybeSetCookie(req, url, env, res) {
 // --- D1 helpers -------------------------------------------------------------
 
 const rowsOf = async (stmt) => (await stmt.all()).results;
+
+// Turso (libSQL) as a drop-in for the D1 binding: a shim that mimics D1's
+// prepare().bind().all()/.first()/.run() + batch(), so all query code below is
+// unchanged. Active when the TURSO_DATABASE_URL secret is set; the libSQL client
+// is created once and cached across requests.
+let _tursoDB = null;
+function tursoDB(env) {
+    if (_tursoDB) return _tursoDB;
+    const client = createClient({ url: env.TURSO_DATABASE_URL, authToken: env.TURSO_AUTH_TOKEN });
+    const plain = (r) => (r ? { ...r } : r);
+    const mk = (sql) => {
+        const st = { sql, args: [] };
+        st.bind = (...a) => { st.args = a; return st; };
+        st.all = async () => ({ results: (await client.execute({ sql: st.sql, args: st.args })).rows.map(plain) });
+        st.first = async () => { const rs = await client.execute({ sql: st.sql, args: st.args }); return rs.rows[0] ? plain(rs.rows[0]) : null; };
+        st.run = async () => { const rs = await client.execute({ sql: st.sql, args: st.args }); return { meta: { changes: Number(rs.rowsAffected || 0), last_row_id: rs.lastInsertRowid } }; };
+        return st;
+    };
+    _tursoDB = {
+        prepare: (sql) => mk(sql),
+        batch: (stmts) => client.batch(stmts.map((s) => ({ sql: s.sql, args: s.args })), 'write'),
+    };
+    return _tursoDB;
+}
 
 const ACCOUNT_COLS = `
     a.steam_id, a.account_name, a.persona, a.country, a.email,
@@ -553,7 +579,46 @@ async function handleApi(req, env, url) {
     }
 
     if (method === 'POST' && p === '/api/scan') return proxyToBox(req, env, url);
-    if (method === 'POST' && p === '/api/email-tokens') return proxyToBox(req, env, url); // box updates SQLite + mirrors to D1
+
+    // Attach/refresh mailbox OAuth tokens on accounts that already exist, matching
+    // each `mail|pass|refresh_token|app_id` line by its stored email. Handled HERE
+    // against D1 (not proxied to the box): the dashboard's accounts live in D1, and
+    // some are D1-only — never on the box — so box matching returned "not found".
+    // email_refresh_token is consumed only by refresh_email_token.js, which reads
+    // D1 through the Worker's /api/ingest, so D1 is the right and only target.
+    if (method === 'POST' && p === '/api/email-tokens') {
+        const b = await body();
+        if (!b.text || !String(b.text).trim()) return json({ error: 'no lines provided' }, 400);
+        const lines = String(b.text).split('\n').map((l) => l.trim()).filter(Boolean);
+        const parsed = [], invalid = [];
+        for (const line of lines) {
+            // refresh_token may itself contain '|', so app_id is the LAST field and
+            // the token is everything between pass and app_id.
+            const parts = line.split('|');
+            const email = (parts[0] || '').trim();
+            const pass = (parts[1] || '').trim();
+            const app_id = parts.length >= 4 ? (parts[parts.length - 1] || '').trim() : '';
+            const refresh_token = parts.length >= 4 ? parts.slice(2, -1).join('|').trim() : '';
+            if (parts.length < 4 || !/^[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}$/.test(email) || !refresh_token) { invalid.push(line.slice(0, 60)); continue; }
+            parsed.push({ email, pass, refresh_token, app_id });
+        }
+        // One read to map email -> account (avoids a SELECT per line and D1's
+        // 100-variable IN() cap); first row wins if an email repeats.
+        const byEmail = new Map();
+        for (const r of await rowsOf(env.DB.prepare("SELECT steam_id, account_name, lower(email) AS le FROM accounts WHERE email IS NOT NULL AND email != ''"))) {
+            if (!byEmail.has(r.le)) byEmail.set(r.le, r);
+        }
+        const updated = [], notFound = [], stmts = [];
+        for (const it of parsed) {
+            const acc = byEmail.get(it.email.toLowerCase());
+            if (!acc) { notFound.push(it.email); continue; }
+            stmts.push(env.DB.prepare('UPDATE accounts SET email_password = ?, email_refresh_token = ?, email_client_id = ?, email_token_refreshed_at = unixepoch(), updated_at = unixepoch() WHERE steam_id = ?')
+                .bind(it.pass || null, it.refresh_token, it.app_id || null, acc.steam_id));
+            updated.push(acc.account_name || it.email);
+        }
+        for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50)); // D1 batch cap
+        return json({ updated: updated.length, updated_names: updated, not_found: notFound, invalid });
+    }
     if (method === 'POST' && p === '/api/email-tokens/refresh') return proxyToBox(req, env, url); // box calls Microsoft to rotate tokens
     if (method === 'POST' && p === '/api/wallets/refresh') return proxyToBox(req, env, url);
     if (p === '/api/jobs' || /^\/api\/jobs\//.test(p)) return proxyToBox(req, env, url); // job state lives on the box
@@ -635,6 +700,8 @@ async function handleApi(req, env, url) {
 
 export default {
     async fetch(req, env, ctx) {
+        // Route DB access to Turso (libSQL) when configured; otherwise the D1 binding.
+        if (env.TURSO_DATABASE_URL) env.DB = tursoDB(env);
         const url = new URL(req.url);
         const authRes = checkAuth(req, url, env);
         if (authRes) return authRes;
