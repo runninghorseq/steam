@@ -429,6 +429,19 @@ async function handleApi(req, env, url) {
         const total = rows.reduce((s, r) => s + (r.playtime_forever || 0), 0);
         return json({ games: rows, count: rows.length, played: rows.filter((r) => r.playtime_forever > 0).length, total_minutes: total });
     }
+
+    // Playtime leaderboard: accounts with game data, most playtime first.
+    if (method === 'GET' && p === '/api/playtime') {
+        const q = url.searchParams.get('q') || '';
+        const like = `%${q}%`;
+        return json(await rowsOf(env.DB.prepare(
+            "SELECT a.steam_id, a.account_name, a.persona, COUNT(gp.app_id) AS game_count, "
+            + "COALESCE(SUM(gp.playtime_forever),0) AS playtime_minutes, COALESCE(SUM(gp.playtime_2weeks),0) AS playtime_2weeks_minutes "
+            + "FROM accounts a JOIN game_playtime gp ON gp.account_steam_id = a.steam_id "
+            + "WHERE (? = '' OR a.account_name LIKE ? OR a.persona LIKE ? OR EXISTS (SELECT 1 FROM game_playtime g2 WHERE g2.account_steam_id = a.steam_id AND g2.name LIKE ?)) "
+            + "GROUP BY a.steam_id ORDER BY playtime_minutes DESC LIMIT 1000")
+            .bind(q, like, like, like)));
+    }
     if (method === 'DELETE' && m) return notOnWorker('Account deletion');
 
     // Bulk skip_wallet apply from a client-built filter (used by wallet_skip.js).

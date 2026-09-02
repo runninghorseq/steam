@@ -636,6 +636,24 @@ async function handleAPI(req, res, url) {
         return sendJSON(res, 200, { games: rows, count: rows.length, played: rows.filter((r) => r.playtime_forever > 0).length, total_minutes: total });
     }
 
+    // Playtime leaderboard: accounts that have game data, most playtime first.
+    // q matches the account name/persona or any owned game's name.
+    if (method === 'GET' && p === '/api/playtime') {
+        const q = url.searchParams.get('q') || '';
+        return sendJSON(res, 200, db.prepare(`
+            SELECT a.steam_id, a.account_name, a.persona,
+                   COUNT(gp.app_id) AS game_count,
+                   COALESCE(SUM(gp.playtime_forever), 0) AS playtime_minutes,
+                   COALESCE(SUM(gp.playtime_2weeks), 0) AS playtime_2weeks_minutes
+            FROM accounts a JOIN game_playtime gp ON gp.account_steam_id = a.steam_id
+            WHERE (@q = '' OR a.account_name LIKE @like OR a.persona LIKE @like
+                   OR EXISTS (SELECT 1 FROM game_playtime g2 WHERE g2.account_steam_id = a.steam_id AND g2.name LIKE @like))
+            GROUP BY a.steam_id
+            ORDER BY playtime_minutes DESC
+            LIMIT 1000
+        `).all({ q, like: `%${q}%` }));
+    }
+
     // Start a password login to (re)cache a refresh token for one account.
     m = /^\/api\/accounts\/(\d{17})\/login$/.exec(p);
     if (method === 'POST' && m) {

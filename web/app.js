@@ -392,6 +392,56 @@ async function openLicenseOwners(pkg) {
     );
 }
 
+// Playtime leaderboard: accounts with the most game time. Each row expands to
+// its per-game breakdown (lazy-loaded from /api/accounts/:id/playtime).
+function viewPlaytime() {
+    const hrs = (m) => `${((m || 0) / 60).toFixed(1)} h`;
+    const bar = toolbar({ placeholder: 'Search account or game name…' });
+    if (!state.rows.length) {
+        return [bar, el('div', { className: 'empty' }, 'No playtime data — run a "playtime" scan (per-account Games tab, or Upload/Scan) first.')];
+    }
+    const head = el('tr', {}, ['Account', 'Games', 'Total', 'Last 2 weeks', ''].map((l, i) =>
+        el('th', { className: (i >= 1 && i <= 3 ? 'num ' : '') + 'no-sort' }, l)));
+    const tbody = el('tbody');
+    state.rows.forEach((a) => {
+        const gamesCell = el('td', { colSpan: 5, style: 'padding:0 0 0 24px' });
+        const detailRow = el('tr', {}, gamesCell);
+        detailRow.style.display = 'none';
+        let loaded = false;
+        const expandBtn = el('button', { className: 'act' }, 'Games ▸');
+        const main = el('tr', { className: 'clickable' },
+            el('td', { className: 'name' }, a.account_name || a.steam_id),
+            el('td', { className: 'num' }, a.game_count),
+            el('td', { className: 'num' }, hrs(a.playtime_minutes)),
+            el('td', { className: 'num' }, a.playtime_2weeks_minutes ? hrs(a.playtime_2weeks_minutes) : '—'),
+            el('td', {}, expandBtn));
+        const toggle = async () => {
+            const opening = detailRow.style.display === 'none';
+            detailRow.style.display = opening ? '' : 'none';
+            expandBtn.textContent = opening ? 'Games ▾' : 'Games ▸';
+            if (opening && !loaded) {
+                loaded = true;
+                gamesCell.replaceChildren(el('div', { className: 'empty' }, 'Loading…'));
+                try {
+                    const pt = await api(`/api/accounts/${a.steam_id}/playtime`);
+                    gamesCell.replaceChildren(table(
+                        [{ label: 'Game' }, { label: 'Total', num: true }, { label: 'Last 2 weeks', num: true }, { label: 'Scanned' }],
+                        pt.games,
+                        (g) => el('tr', {},
+                            el('td', {}, g.name || `app ${g.app_id}`),
+                            el('td', { className: 'num' }, hrs(g.playtime_forever)),
+                            el('td', { className: 'num' }, g.playtime_2weeks ? hrs(g.playtime_2weeks) : '—'),
+                            el('td', { className: 'dim' }, date(g.scanned_at)))
+                    ));
+                } catch (e) { gamesCell.replaceChildren(el('div', { className: 'empty' }, e.message)); loaded = false; }
+            }
+        };
+        main.onclick = (ev) => { if (!ev.target.closest('button') || ev.target === expandBtn) toggle(); };
+        tbody.append(main, detailRow);
+    });
+    return [bar, el('div', { className: 'table-wrap' }, el('table', {}, el('thead', {}, head), tbody))];
+}
+
 function viewScan() {
     const wrap = el('div');
 
@@ -945,9 +995,10 @@ const ENDPOINTS = {
     sent: () => '/api/gifts/sent',
     friends: () => `/api/friends?q=${encodeURIComponent(state.q)}`,
     licenses: () => `/api/licenses?q=${encodeURIComponent(state.q)}`,
+    playtime: () => `/api/playtime?q=${encodeURIComponent(state.q)}`,
     scan: null
 };
-const VIEWS = { accounts: viewAccounts, sent: viewSent, friends: viewFriends, licenses: viewLicenses, scan: viewScan };
+const VIEWS = { accounts: viewAccounts, sent: viewSent, friends: viewFriends, licenses: viewLicenses, playtime: viewPlaytime, scan: viewScan };
 
 async function load() {
     try {
