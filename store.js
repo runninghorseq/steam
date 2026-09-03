@@ -314,6 +314,19 @@ async function saveEmailRefreshToken(steamID, refreshToken) {
     await d1n.d1run('UPDATE accounts SET email_refresh_token = ?, email_token_refreshed_at = ?, updated_at = ? WHERE steam_id = ?', [refreshToken, now(), now(), steamID]);
 }
 
+// --- job persistence --------------------------------------------------------
+
+// Upsert a background job run. row = { id, type, status, created_at, updated_at,
+// summary (JSON string), lines (newline-joined log) }.
+async function saveJob(row) {
+    if (USE_WORKER) return wcall('saveJob', { row });
+    if (!USE_D1) return L().saveJob(row);
+    await d1n.d1run(
+        'INSERT INTO jobs (id, type, status, created_at, updated_at, summary, lines) VALUES (?, ?, ?, ?, ?, ?, ?) '
+        + 'ON CONFLICT(id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at, summary = excluded.summary, lines = excluded.lines',
+        [row.id, row.type, row.status, row.created_at, row.updated_at, row.summary, row.lines]);
+}
+
 // --- small reads the job endpoints need -------------------------------------
 
 async function accountNameBySteamID(steamID) {
@@ -366,6 +379,6 @@ module.exports = {
     saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts, saveGamePlaytime, reconcileSentGifts,
     addAccountStub, dropPendingStub, accountNames,
     accountNameBySteamID, accountBySteamID, accountByName, removeFriendRows,
-    walletRefreshSelection, friendSteamIDs, mailTokenAccounts, saveEmailRefreshToken,
+    walletRefreshSelection, friendSteamIDs, mailTokenAccounts, saveEmailRefreshToken, saveJob,
     parseGiftedAt,
 };

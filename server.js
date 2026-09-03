@@ -129,12 +129,30 @@ function makeJob(type, meta) {
         lines: [], results: []
     };
     jobs.set(id, job);
+    persistJob(job);
     return job;
 }
 
 function jobLog(job, line) {
     job.lines.push(`[${new Date().toLocaleTimeString()}] ${line}`);
     if (job.lines.length > MAX_LINES) job.lines.splice(0, job.lines.length - MAX_LINES);
+    persistJob(job);
+}
+
+// Persist a job to the DB so it survives a restart and the dashboard can read
+// history. Throttled while running (every ~2.5s); forced once terminal. Fire and
+// forget — a persistence hiccup must never break the running job.
+function persistJob(job) {
+    const terminal = job.status === 'done' || job.status === 'error' || job.status === 'cancelled';
+    const t = Date.now();
+    if (!terminal && job._lastPersist && t - job._lastPersist < 2500) return;
+    job._lastPersist = t;
+    store.saveJob({
+        id: job.id, type: job.type, status: job.status,
+        created_at: job.created_at, updated_at: now(),
+        summary: JSON.stringify(jobView(job, false)),
+        lines: (job.lines || []).join('\n'),
+    }).catch((e) => console.error('[persistJob]', job.id, e.message));
 }
 
 // Public view of a job — omit the per-account result objects' bulk, keep counts.

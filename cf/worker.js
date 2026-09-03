@@ -323,6 +323,11 @@ async function handleIngest(env, b) {
         case 'saveRefreshToken':
             await run('INSERT INTO auth_tokens (account_name, refresh_token, created_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(account_name) DO UPDATE SET refresh_token = excluded.refresh_token, updated_at = excluded.updated_at', b.accountName, b.token, ts, ts);
             return true;
+        case 'saveJob': {
+            const r = b.row;
+            await run('INSERT INTO jobs (id, type, status, created_at, updated_at, summary, lines) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at, summary = excluded.summary, lines = excluded.lines', r.id, r.type, r.status, r.created_at, r.updated_at, r.summary, r.lines);
+            return true;
+        }
         case 'clearRefreshToken':
             await run('DELETE FROM auth_tokens WHERE account_name = ?', b.accountName);
             return true;
@@ -678,7 +683,25 @@ async function handleApi(req, env, url, ctx) {
     }
     if (method === 'POST' && p === '/api/email-tokens/refresh') return proxyToBox(req, env, url); // box calls Microsoft to rotate tokens
     if (method === 'POST' && p === '/api/wallets/refresh') return proxyToBox(req, env, url);
-    if (p === '/api/jobs' || /^\/api\/jobs\//.test(p)) return proxyToBox(req, env, url); // job state lives on the box
+    // Cancel needs the box's live in-memory job (cooperative stop) — proxy it.
+    if (method === 'POST' && /^\/api\/jobs\/[0-9a-f]{12}\/cancel$/.test(p)) return proxyToBox(req, env, url);
+    // Job list + detail are read from the DB (persisted by the box), so history
+    // survives a box restart and shows even if the box is briefly unreachable.
+    if (method === 'GET' && p === '/api/jobs') {
+        const rows = await rowsOf(env.DB.prepare('SELECT summary FROM jobs ORDER BY created_at DESC LIMIT 100'));
+        return json(rows.map((r) => { try { return JSON.parse(r.summary); } catch { return null; } }).filter(Boolean));
+    }
+    m = /^\/api\/jobs\/([0-9a-f]{12})$/.exec(p);
+    if (method === 'GET' && m) {
+        const row = await env.DB.prepare('SELECT summary, lines FROM jobs WHERE id = ?').bind(m[1]).first();
+        if (!row) return json({ error: 'no such job' }, 404);
+        let view = {};
+        try { view = JSON.parse(row.summary); } catch { /* keep {} */ }
+        view.lines = row.lines ? row.lines.split('\n') : [];
+        return json(view);
+    }
+    // Anything else under /api/jobs/ (future box-only routes) still proxies.
+    if (/^\/api\/jobs\//.test(p)) return proxyToBox(req, env, url);
 
     // --- gift API (the bot + CLI scripts call these) ---
     if (method === 'POST' && p === '/api/gift/candidates') {

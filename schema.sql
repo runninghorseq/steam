@@ -206,3 +206,22 @@ CREATE TABLE IF NOT EXISTS auth_tokens (
     created_at     INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at     INTEGER NOT NULL DEFAULT (unixepoch())
 );
+
+-- ----------------------------------------------------------------------------
+-- jobs: persisted background job runs (scan / sync / wallet / playtime / ...).
+--   Written by the box's job runner; the dashboard reads history from here so
+--   jobs survive a restart. `summary` is the job's JSON view (counts, timestamps,
+--   usernames, results — everything except the log); `lines` is the newline-
+--   joined log. Progress is flushed on a throttle while running, and forced once
+--   the job reaches a terminal status.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS jobs (
+    id          TEXT PRIMARY KEY,  -- 12-hex job id
+    type        TEXT,              -- scan | scan-id | sync | wallet | email-refresh | ...
+    status      TEXT,              -- queued | running | done | error | cancelled
+    created_at  INTEGER,
+    updated_at  INTEGER,
+    summary     TEXT,              -- JSON: the job view without log lines
+    lines       TEXT               -- newline-joined log
+);
+CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs (created_at);

@@ -449,9 +449,17 @@ const saveGamePlaytime = db.transaction((accountSteamID, games) => {
     return games.length;
 });
 
+// Persist a background job run (upsert by id). `row` = { id, type, status,
+// created_at, updated_at, summary, lines }.
+const _saveJobStmt = db.prepare(
+    'INSERT INTO jobs (id, type, status, created_at, updated_at, summary, lines) VALUES (@id, @type, @status, @created_at, @updated_at, @summary, @lines) '
+    + 'ON CONFLICT(id) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at, summary = excluded.summary, lines = excluded.lines'
+);
+function saveJob(row) { _saveJobStmt.run(row); }
+
 module.exports = {
     db, saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts,
     saveRefreshToken, getRefreshToken, clearRefreshToken,
     isLoanedAccount, setAccountLoan, parseGiftedAt, addAccountStub, saveGamePlaytime,
-    updateCredentials
+    updateCredentials, saveJob
 };
