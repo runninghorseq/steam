@@ -3,27 +3,27 @@
 //   pm2 save                       # persist across reboots
 //   pm2 restart steam --update-env # after changing env below or the .env file
 //
-// This runs server.js — the box's job runner that the Cloudflare Worker proxies
-// Steam-login actions (Refresh wallet / Scan / Sync / Playtime) to. The D1
-// write-through is NOT a separate process: it lives inside server.js (via
-// db.js -> d1_mirror.js) and activates when the D1_* vars below are present, so
-// every wallet/scan/sync/playtime write also lands in D1 and the dashboard
-// reflects it.
+// Runs server.js — the box's job runner that the Cloudflare Worker proxies
+// Steam-login actions (Refresh wallet / Scan / Sync / Playtime) to. The box
+// writes job results straight to Turso (libSQL) — the SAME database the
+// dashboard Worker reads — so a scan/wallet/sync/playtime immediately shows up
+// in the dashboard. The box is a Node process, so these (often large, chunked)
+// writes have no Cloudflare Worker subrequest limit.
 //
-// Secrets (DASHBOARD_TOKEN, CLOUDFLARE_API_TOKEN) go in /opt/steam/.env — never
-// commit them. The non-secret D1 identifiers live here for visibility.
+// Secrets (DASHBOARD_TOKEN, TURSO_AUTH_TOKEN) go in /opt/steam/.env — never
+// commit them. The non-secret Turso URL lives here for visibility.
+//
+// store.js backend precedence: WORKER_URL (push to the Worker) > TURSO_DATABASE_URL
+// (write Turso directly, this setup) > CF_* (legacy D1) > local file. So do NOT
+// set WORKER_URL or the CF_*/D1_* vars here — their presence would divert writes.
 module.exports = {
   apps: [{
     name: 'steam',
     script: 'server.js',
     cwd: __dirname,
-    env_file: '/opt/steam/.env',   // DASHBOARD_TOKEN=... and CLOUDFLARE_API_TOKEN=...
+    env_file: '/opt/steam/.env',   // DASHBOARD_TOKEN=... and TURSO_AUTH_TOKEN=...
     env: {
-      // D1 write-through (mirror local writes to Cloudflare D1). The API token
-      // must ALSO be set (in the .env file) or the mirror stays inactive.
-      D1_MIRROR: '1',
-      CLOUDFLARE_ACCOUNT_ID: '37280e9eb5701c9a72e1eb8d815c614a',
-      D1_DATABASE_ID: '5d137a2b-599b-4621-99c1-aef4b0ebd93d',
+      TURSO_DATABASE_URL: 'libsql://steam-phamtuyenhien.aws-ap-northeast-1.turso.io',
     },
     autorestart: true,
     max_restarts: 10,

@@ -665,31 +665,61 @@ async function handleApi(req, env, url) {
         const b = await body();
         const updates = Array.isArray(b.updates) ? b.updates : [];
         if (updates.length === 0) return json({ error: 'updates[] required' }, 400);
-        let willChange = 0, alreadyCorrect = 0;
-        const unmatched = [], changes = [];
+
+        // Read/write in BULK, not one query per update: over Turso each query is a
+        // Worker subrequest, and Workers cap subrequests — a per-row loop 500s on a
+        // large file. Name matches stay case-insensitive (keyed by lowercase, with
+        // the original preserved for reporting).
+        const nameWant = new Map();  // lowerName -> { country, key }
+        const steamWant = new Map(); // steamid   -> { country, key }
         for (const u of updates) {
             const country = String(u.country || '').trim();
             const key = String(u.key || '');
             if (!country || !key) continue;
-            const rows = await rowsOf(env.DB.prepare(u.matchBy === 'steamid'
-                ? 'SELECT account_steam_id, friend_steam_id, friend_name, country FROM friends WHERE friend_steam_id = ?'
-                : 'SELECT account_steam_id, friend_steam_id, friend_name, country FROM friends WHERE lower(friend_name) = lower(?)').bind(key));
-            if (rows.length === 0) { unmatched.push({ matchBy: u.matchBy, key }); continue; }
-            const rc = rows.map((r) => ({ friend_name: r.friend_name, account_steam_id: r.account_steam_id, current: r.country, new: country, will_change: r.country !== country }));
-            willChange += rc.filter((r) => r.will_change).length;
-            alreadyCorrect += rc.filter((r) => !r.will_change).length;
-            changes.push({ matchBy: u.matchBy, key, country, rows: rc });
+            if (u.matchBy === 'steamid') steamWant.set(key, { country, key });
+            else nameWant.set(key.toLowerCase(), { country, key });
         }
+
+        // Turso has no bound-param cap (large IN chunks -> few round trips); D1 caps
+        // at 100/query. Either way this is a handful of subrequests, not N.
+        const CH = env.TURSO_DATABASE_URL ? 450 : 90;
+        const chunk = (arr, n) => { const o = []; for (let i = 0; i < arr.length; i += n) o.push(arr.slice(i, i + n)); return o; };
+        const selectIn = async (col, keys, lower) => {
+            const out = [];
+            for (const c of chunk(keys, CH)) {
+                out.push(...await rowsOf(env.DB.prepare(
+                    `SELECT account_steam_id, friend_steam_id, friend_name, country FROM friends WHERE ${lower ? `lower(${col})` : col} IN (${c.map(() => '?').join(',')})`).bind(...c)));
+            }
+            return out;
+        };
+        const nameRows = nameWant.size ? await selectIn('friend_name', [...nameWant.keys()], true) : [];
+        const steamRows = steamWant.size ? await selectIn('friend_steam_id', [...steamWant.keys()], false) : [];
+
+        let willChange = 0, alreadyCorrect = 0;
+        const unmatched = [], changes = [];
+        const report = (rows, keyOf, want, matchBy) => {
+            const grouped = new Map();
+            for (const r of rows) { const k = keyOf(r); if (!grouped.has(k)) grouped.set(k, []); grouped.get(k).push(r); }
+            for (const [k, { country, key }] of want) {
+                const rs = grouped.get(k) || [];
+                if (!rs.length) { unmatched.push({ matchBy, key }); continue; }
+                const rc = rs.map((r) => ({ friend_name: r.friend_name, account_steam_id: r.account_steam_id, current: r.country, new: country, will_change: r.country !== country }));
+                willChange += rc.filter((r) => r.will_change).length;
+                alreadyCorrect += rc.filter((r) => !r.will_change).length;
+                changes.push({ matchBy, key, country, rows: rc });
+            }
+        };
+        report(nameRows, (r) => String(r.friend_name || '').toLowerCase(), nameWant, 'name');
+        report(steamRows, (r) => r.friend_steam_id, steamWant, 'steamid');
+
         let totalChanges = 0;
         if (b.commit) {
-            for (const u of updates) {
-                const country = String(u.country || '').trim();
-                const key = String(u.key || '');
-                if (!country || !key) continue;
-                const r = await env.DB.prepare(u.matchBy === 'steamid'
-                    ? 'UPDATE friends SET country = ?, updated_at = unixepoch() WHERE friend_steam_id = ?'
-                    : 'UPDATE friends SET country = ?, updated_at = unixepoch() WHERE lower(friend_name) = lower(?)').bind(country, key).run();
-                totalChanges += r.meta.changes;
+            const stmts = [];
+            for (const [k, { country }] of nameWant) stmts.push(env.DB.prepare('UPDATE friends SET country = ?, updated_at = unixepoch() WHERE lower(friend_name) = ?').bind(country, k));
+            for (const [k, { country }] of steamWant) stmts.push(env.DB.prepare('UPDATE friends SET country = ?, updated_at = unixepoch() WHERE friend_steam_id = ?').bind(country, k));
+            for (const c of chunk(stmts, 500)) {
+                const res = await env.DB.batch(c);
+                totalChanges += res.reduce((s, r) => s + Number(r?.rowsAffected ?? r?.meta?.changes ?? 0), 0);
             }
         }
         return json({ willChange, alreadyCorrect, unmatched, changes, committed: !!b.commit, totalChanges });
