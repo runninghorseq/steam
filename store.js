@@ -151,6 +151,24 @@ async function accountNames() {
     return (await d1n.d1all(sql, [])).map((r) => r.n);
 }
 
+// Login names that have a cached refresh token — used to pick which accounts a
+// sync/gift job can actually log into.
+async function tokenAccountNames() {
+    const sql = 'SELECT account_name FROM auth_tokens';
+    if (USE_WORKER) return (await wcall('tokenAccountNames', {})).map((r) => r.account_name);
+    if (!USE_D1) return L().db.prepare(sql).all().map((r) => r.account_name);
+    return (await d1n.d1all(sql, [])).map((r) => r.account_name);
+}
+
+// Distinct login names of accounts that have any sent-gift rows (candidates for
+// the "sync sent gifts" sweep).
+async function accountsWithSentGifts() {
+    const sql = 'SELECT DISTINCT a.account_name AS username FROM sent_gifts s JOIN accounts a ON a.steam_id = s.account_steam_id WHERE a.account_name IS NOT NULL ORDER BY a.account_name';
+    if (USE_WORKER) return (await wcall('accountsWithSentGifts', {})).map((r) => r.username);
+    if (!USE_D1) return L().db.prepare(sql).all().map((r) => r.username);
+    return (await d1n.d1all(sql, [])).map((r) => r.username);
+}
+
 // --- friends (COALESCE upsert — preserves gifted_at/gifted_game/country) ------
 
 async function saveFriends(accountSteamID, friends) {
@@ -377,7 +395,7 @@ module.exports = {
     USE_D1, USE_WORKER,
     getRefreshToken, saveRefreshToken, clearRefreshToken,
     saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts, saveGamePlaytime, reconcileSentGifts,
-    addAccountStub, dropPendingStub, accountNames,
+    addAccountStub, dropPendingStub, accountNames, tokenAccountNames, accountsWithSentGifts,
     accountNameBySteamID, accountBySteamID, accountByName, removeFriendRows,
     walletRefreshSelection, friendSteamIDs, mailTokenAccounts, saveEmailRefreshToken, saveJob,
     parseGiftedAt,

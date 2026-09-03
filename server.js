@@ -635,7 +635,9 @@ async function handleAPI(req, res, url) {
         }));
     }
 
-    let m = /^\/api\/accounts\/(\d{17})$/.exec(p);
+    // Accept a real SteamID64 or a `pending:<username>` stub (added without a
+    // SteamID) so the admin can open and review it before scanning to resolve it.
+    let m = /^\/api\/accounts\/(\d{17}|pending:[^/]+)$/.exec(p);
     if (method === 'GET' && m) {
         const detail = accountDetail(m[1]);
         return detail ? sendJSON(res, 200, detail) : sendJSON(res, 404, { error: 'account not found' });
@@ -873,7 +875,9 @@ async function handleAPI(req, res, url) {
         const { account_name, concurrency, timeout } = await readBody(req);
         // Same account selection as sync_sent_gifts.js: accounts that have
         // sent_gifts rows AND a cached token, or one named account (token required).
-        const tokenNames = db.prepare('SELECT account_name FROM auth_tokens').all().map((r) => r.account_name);
+        // Reads go through store so they hit the live DB (Turso), not the box's
+        // stale local file.
+        const tokenNames = await store.tokenAccountNames();
         const byLower = new Map(tokenNames.map((n) => [n.toLowerCase(), n]));
 
         let accounts;
@@ -882,13 +886,9 @@ async function handleAPI(req, res, url) {
             if (!canonical) return sendJSON(res, 400, { error: `no cached token for '${account_name}' — cannot sync it` });
             accounts = [{ username: canonical }];
         } else {
-            const rows = db.prepare(`
-                SELECT DISTINCT a.account_name AS username
-                FROM sent_gifts s JOIN accounts a ON a.steam_id = s.account_steam_id
-                WHERE a.account_name IS NOT NULL ORDER BY a.account_name
-            `).all();
-            accounts = rows.filter((r) => byLower.has(r.username.toLowerCase()))
-                .map((r) => ({ username: byLower.get(r.username.toLowerCase()) }));
+            const rows = await store.accountsWithSentGifts();
+            accounts = rows.filter((username) => byLower.has(username.toLowerCase()))
+                .map((username) => ({ username: byLower.get(username.toLowerCase()) }));
         }
         if (accounts.length === 0) {
             return sendJSON(res, 200, { queued: 0, message: 'No accounts with sent gifts and a cached token to sync.' });

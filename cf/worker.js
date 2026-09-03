@@ -352,6 +352,10 @@ async function handleIngest(env, b) {
             return true;
         case 'accountNames':
             return all('SELECT lower(account_name) AS n FROM accounts WHERE account_name IS NOT NULL');
+        case 'tokenAccountNames':
+            return all('SELECT account_name FROM auth_tokens');
+        case 'accountsWithSentGifts':
+            return all('SELECT DISTINCT a.account_name AS username FROM sent_gifts s JOIN accounts a ON a.steam_id = s.account_steam_id WHERE a.account_name IS NOT NULL ORDER BY a.account_name');
         case 'saveFriends': {
             const friends = b.friends || [];
             if (!friends.length) return true;
@@ -483,7 +487,9 @@ async function handleApi(req, env, url, ctx) {
         }));
     }
 
-    let m = /^\/api\/accounts\/(\d{17})$/.exec(p);
+    // A real SteamID64, or a `pending:<username>` stub added without a SteamID —
+    // openable so the admin can review it before scanning to resolve it.
+    let m = /^\/api\/accounts\/(\d{17}|pending:[^/]+)$/.exec(p);
     if (method === 'GET' && m) { const d = await accountDetail(env, m[1]); return d ? json(d) : json({ error: 'account not found' }, 404); }
 
     m = /^\/api\/accounts\/(\d{17})\/playtime$/.exec(p);

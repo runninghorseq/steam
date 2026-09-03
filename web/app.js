@@ -40,6 +40,21 @@ function toast(msg, isErr) {
     setTimeout(() => t.remove(), 3200);
 }
 
+// A small button that copies `text` to the clipboard (with a graceful fallback
+// for non-secure contexts). `label` names the thing in the toast.
+function copyBtn(text, label = 'value') {
+    const b = el('button', { className: 'act', style: 'padding:0 6px; font-size:12px; line-height:1.6', title: `Copy ${label}` }, '⧉');
+    b.onclick = async (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        try {
+            if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+            else { const ta = el('textarea', { value: text, style: 'position:fixed;opacity:0' }); document.body.append(ta); ta.select(); document.execCommand('copy'); ta.remove(); }
+            toast(`Copied ${label}`);
+        } catch { toast('Copy failed', true); }
+    };
+    return b;
+}
+
 // --- formatting -------------------------------------------------------------
 
 const money = (cents, cur) => cents == null ? '—' : `${(cents / 100).toFixed(2)} ${cur || ''}`.trim();
@@ -264,21 +279,33 @@ function walletFilterBar() {
 // Sent-gift recipient cell. If the recipient is one of our own accounts (matched
 // by steam_id), clicking opens that account's detail dialog. Otherwise it's an
 // external Steam user — link out to their community profile in a new tab.
+// The sender account (always one of ours) — click to open its detail dialog.
+function sentFromCell(g) {
+    const label = g.account_name || g.account_steam_id || '—';
+    if (!g.account_steam_id) return el('td', { className: 'name' }, label);
+    const link = el('a', { href: '#', style: 'color:var(--accent); cursor:pointer', title: 'Open sender account' }, label);
+    link.onclick = (ev) => { ev.preventDefault(); openDetail(g.account_steam_id); };
+    return el('td', { className: 'name' }, link);
+}
+
 function sentRecipientCell(g) {
     const label = g.recipient_name || g.recipient_steam_id || '—';
+    // A copy button for the recipient name (or id) — quick to paste into a list.
+    const copy = (g.recipient_name || g.recipient_steam_id)
+        ? [' ', copyBtn(g.recipient_name || g.recipient_steam_id, 'recipient')] : [];
     if (g.recipient_account_id) {
         const link = el('a', { href: '#', style: 'color:var(--accent); cursor:pointer', title: 'One of your accounts — view details' }, label);
         link.onclick = (ev) => { ev.preventDefault(); openDetail(g.recipient_account_id); };
-        return el('td', {}, link, ' ', el('span', { className: 'tag loan', title: 'Recipient is your account' }, 'account'));
+        return el('td', {}, link, ' ', el('span', { className: 'tag loan', title: 'Recipient is your account' }, 'account'), ...copy);
     }
     if (g.recipient_steam_id) {
         return el('td', {}, el('a', {
             href: `https://steamcommunity.com/profiles/${g.recipient_steam_id}`,
             target: '_blank', rel: 'noopener noreferrer',
             style: 'color:var(--accent)', title: 'External recipient — open Steam profile',
-        }, label));
+        }, label), ...copy);
     }
-    return el('td', {}, label);
+    return el('td', {}, label, ...copy);
 }
 
 function viewSent() {
@@ -332,7 +359,7 @@ function viewSent() {
         };
         boxes.push(cb);
         return el('tr', {}, el('td', {}, cb),
-            el('td', { className: 'name' }, g.account_name || g.account_steam_id),
+            sentFromCell(g),
             sentRecipientCell(g),
             el('td', {}, g.item_name || '—'),
             el('td', { className: 'dim' }, date(g.sent_at)),
@@ -804,12 +831,6 @@ function credentialsSection(a) {
 }
 
 async function openDetail(steamID) {
-    // Placeholder rows have no real SteamID, so the detail endpoint (keyed on a
-    // 17-digit id) can't load them — guide the admin to scan instead.
-    if (String(steamID).startsWith('pending:')) {
-        toast('No SteamID yet — run a "SteamID only" scan to resolve this account, then open it.', true);
-        return;
-    }
     const dlg = $('#detail');
     const body = $('#detail-body');
     body.replaceChildren(el('div', { className: 'empty' }, 'Loading…'));
@@ -832,6 +853,17 @@ async function openDetail(steamID) {
          ['skip_wallet', a.skip_wallet ? 'yes' : 'no'], ['loan_id', a.loan_id ?? '—']
         ].map(([k, v]) => el('div', {}, el('span', {}, k), el('b', {}, v ?? '—')))
     );
+
+    // Pending stub (added without a SteamID): show meta only. The per-account
+    // actions (scan / wallet / status / credentials) key on a real SteamID64, so
+    // resolve it first with a "SteamID only" scan on the Upload / Scan tab.
+    if (String(a.steam_id).startsWith('pending:')) {
+        const banner = el('div', { className: 'empty', style: 'border:1px dashed var(--border); border-radius:8px; padding:12px; margin-bottom:14px; text-align:left' },
+            el('b', {}, 'No SteamID yet. '),
+            `This account was added without one. Resolve it with a "SteamID only" scan on the Upload / Scan tab (login name: ${a.account_name || '—'}), then reopen for full details, per-account actions, and scan data.`);
+        body.replaceChildren(banner, kv);
+        return;
+    }
 
     const tabs = el('div', { className: 'sub-tabs' });
     const pane = el('div');
