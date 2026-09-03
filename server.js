@@ -50,6 +50,7 @@ process.on('uncaughtException', (err) => {
 // scanAccount). Only one scan runs at a time; more are queued, so we never open
 // a burst of Steam logins that trips rate limiting.
 const jobs = new Map();
+let persistWarned = false; // so the "can't persist jobs" explanation logs once, then stays terse
 const MAX_LINES = 4000;
 // One Steam-login job runs at a time (scan or sync); the rest queue, so we never
 // open two bursts of logins into Steam's rate limiter at once.
@@ -152,7 +153,21 @@ function persistJob(job) {
         created_at: job.created_at, updated_at: now(),
         summary: JSON.stringify(jobView(job, false)),
         lines: (job.lines || []).join('\n'),
-    }).catch((e) => console.error('[persistJob]', job.id, e.message));
+    }).catch((e) => {
+        job._persistError = e.message;
+        // The dashboard reads jobs from the DB, so a failed persist surfaces there
+        // as "no such job". Spell out the likely fix once, then stay terse.
+        if (!persistWarned) {
+            persistWarned = true;
+            const hint = /no such table/i.test(e.message) ? '  -> apply migrations on the box: npm run migrate'
+                : /no such column/i.test(e.message) ? '  -> apply migrations on the box: npm run migrate'
+                : /unauthorized|401/i.test(e.message) ? '  -> TURSO_AUTH_TOKEN wrong/missing in /opt/steam/.env'
+                : '  -> check the box can reach the database (TURSO_DATABASE_URL / WORKER_URL)';
+            console.error(`[persistJob] Could NOT save job state to the DB; the dashboard will show "no such job" for jobs until this is fixed.\n  Cause: ${e.message}\n${hint}`);
+        } else {
+            console.error(`[persistJob] ${job.id}: ${e.message}`);
+        }
+    });
 }
 
 // Public view of a job — omit the per-account result objects' bulk, keep counts.

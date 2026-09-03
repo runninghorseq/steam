@@ -710,14 +710,22 @@ async function handleApi(req, env, url, ctx) {
     if (method === 'POST' && /^\/api\/jobs\/[0-9a-f]{12}\/cancel$/.test(p)) return proxyToBox(req, env, url);
     // Job list + detail are read from the DB (persisted by the box), so history
     // survives a box restart and shows even if the box is briefly unreachable.
+    // A missing `jobs` table means migrations aren't applied — say so, don't 500.
+    const jobsTableHint = (e) => /no such table/i.test(e.message)
+        ? json({ error: `the "jobs" table doesn't exist in the database — apply migrations: npm run migrate (${e.message})` }, 503)
+        : json({ error: `jobs read failed: ${e.message}` }, 500);
     if (method === 'GET' && p === '/api/jobs') {
-        const rows = await rowsOf(env.DB.prepare('SELECT summary FROM jobs ORDER BY created_at DESC LIMIT 100'));
-        return json(rows.map((r) => { try { return JSON.parse(r.summary); } catch { return null; } }).filter(Boolean));
+        try {
+            const rows = await rowsOf(env.DB.prepare('SELECT summary FROM jobs ORDER BY created_at DESC LIMIT 100'));
+            return json(rows.map((r) => { try { return JSON.parse(r.summary); } catch { return null; } }).filter(Boolean));
+        } catch (e) { return jobsTableHint(e); }
     }
     m = /^\/api\/jobs\/([0-9a-f]{12})$/.exec(p);
     if (method === 'GET' && m) {
-        const row = await env.DB.prepare('SELECT summary, lines FROM jobs WHERE id = ?').bind(m[1]).first();
-        if (!row) return json({ error: 'no such job' }, 404);
+        let row;
+        try { row = await env.DB.prepare('SELECT summary, lines FROM jobs WHERE id = ?').bind(m[1]).first(); }
+        catch (e) { return jobsTableHint(e); }
+        if (!row) return json({ error: `job ${m[1]} isn't in the database yet. The box records job state as it runs — this means the box hasn't persisted it (its code may be outdated, or it isn't connected to this same database). Check the box: pm2 logs steam` }, 404);
         let view = {};
         try { view = JSON.parse(row.summary); } catch { /* keep {} */ }
         view.lines = row.lines ? row.lines.split('\n') : [];
