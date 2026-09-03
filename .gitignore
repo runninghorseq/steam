@@ -15,3 +15,6 @@ cf/steam_full.sql
 .*
 # but keep the tracked deploy-token template
 !.env.deploy.example
+
+# local test DB from `npm run migrate:local`
+local-migrate.db*

@@ -9,9 +9,9 @@
     "wrangler:dev": "wrangler dev",
     "deploy": "bash scripts/deploy.sh",
     "deploy:check": "node scripts/check-deploy-token.mjs",
-    "migrate": "node scripts/migrate.mjs --remote",
-    "migrate:local": "node scripts/migrate.mjs --local",
-    "migrate:list": "node scripts/migrate.mjs --list --remote"
+    "migrate": "node scripts/migrate.mjs",
+    "migrate:list": "node scripts/migrate.mjs --list",
+    "migrate:local": "TURSO_DATABASE_URL=file:./local-migrate.db node scripts/migrate.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.17.4",

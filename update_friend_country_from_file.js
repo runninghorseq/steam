@@ -27,7 +27,7 @@ const fs = require('fs');
 // This script parses the local file and POSTs the country mapping to the API,
 // which does the matching + writes. No local DB access.
 // Override base with STEAM_API_BASE; token via STEAM_API_TOKEN / DASHBOARD_TOKEN.
-const API_BASE = (process.env.STEAM_API_BASE || 'https://steam.fungamingvn.space').replace(/\/+$/, '');
+const API_BASE = (process.env.STEAM_API_BASE || 'https://steam-dashboard.fungamingsteam.workers.dev/').replace(/\/+$/, '');
 const API_TOKEN = process.env.STEAM_API_TOKEN || process.env.DASHBOARD_TOKEN || '';
 
 async function apiPost(path, body) {
@@ -82,7 +82,7 @@ async function apiPost(path, body) {
 //   .../acc_new_steam/20260504_steam_4k_outlook.txt
 ///.  20260504_PTGO1774415483.txtresult.txt
 const DEFAULT_FILE =
-    '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260526_1k_outlook_2005.txtresult.txt';
+    '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260606_1491_of_3k_outlook.txtresult.txt';
 
 const args = process.argv.slice(2);
 const COMMIT = args.includes('--commit');

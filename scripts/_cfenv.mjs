@@ -6,19 +6,18 @@
  * instead of an OAuth session (there is none on this box) and `migrations apply
  * --remote` can reach D1.
  *
- * Precedence:
- *   1. .env.deploy   — the deploy token (a token scoped for this project). Wins
- *                      even over an exported value.
- *   2. the environment — a token exported by hand, for a one-off.
- *   3. .env          — last resort, so the repo still reaches Cloudflare and
- *                      fails with a permissions error that says so.
- *
- * Only those two names are read; nothing else in the files is touched.
+ * Precedence (an explicit env var wins, so `TURSO_DATABASE_URL=file:… npm run
+ * migrate` or `migrate:local` targets what you asked for — NOT the prod URL in
+ * .env.deploy):
+ *   1. the environment — a value exported or set inline for this run.
+ *   2. .env.deploy     — the deploy token / prod URL for the normal flow.
+ *   3. .env            — last resort, so the repo still reaches the service and
+ *                        fails with a permissions error that says so.
  */
 
 import { readFileSync } from 'node:fs';
 
-const KEYS = ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID'];
+const KEYS = ['CLOUDFLARE_API_TOKEN', 'CLOUDFLARE_ACCOUNT_ID', 'TURSO_DATABASE_URL', 'TURSO_AUTH_TOKEN'];
 
 function readEnvFile(name) {
   const found = {};
@@ -44,8 +43,8 @@ export const sources = {};
 
 for (const key of KEYS) {
   const candidates = [
-    ['.env.deploy', deploy[key]],
     ['environment', process.env[key]],
+    ['.env.deploy', deploy[key]],
     ['.env', fallback[key]],
   ];
   const hit = candidates.find(([, value]) => value);
