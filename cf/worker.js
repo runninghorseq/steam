@@ -529,7 +529,7 @@ async function handleApi(req, env, url) {
     if (method === 'POST' && (/^\/api\/accounts\/\d{17}\/(run|login|remove-friends)$/.test(p))) return proxyToBox(req, env, url);
     if (/^\/api\/accounts\/login\//.test(p)) return proxyToBox(req, env, url);
 
-    if (method === 'GET' && p === '/api/gifts/sent') return json(await rowsOf(env.DB.prepare('SELECT s.*, a.account_name FROM sent_gifts s LEFT JOIN accounts a ON a.steam_id = s.account_steam_id ORDER BY s.sent_at IS NULL, s.sent_at ASC')));
+    if (method === 'GET' && p === '/api/gifts/sent') return json(await rowsOf(env.DB.prepare('SELECT s.*, a.account_name, ra.steam_id AS recipient_account_id, ra.account_name AS recipient_account_name FROM sent_gifts s LEFT JOIN accounts a ON a.steam_id = s.account_steam_id LEFT JOIN accounts ra ON ra.steam_id = s.recipient_steam_id ORDER BY s.sent_at IS NULL, s.sent_at ASC')));
     // Admin: delete sent-gift rows by gift_id (DB-only cleanup; a live gift that is
     // still pending on Steam will reappear on the next sync).
     if (method === 'POST' && p === '/api/gifts/sent/delete') {

@@ -124,6 +124,7 @@ function makeJob(type, meta) {
     const job = {
         id, type, ...meta,
         status: 'queued', created_at: now(), started_at: null, finished_at: null,
+        cancelled: false,
         total: meta.total || 0, done: 0, ok: 0, failed: 0, guard_skipped: 0, pruned: 0,
         lines: [], results: []
     };
@@ -157,6 +158,7 @@ async function runScanJob(job, accounts, timeout, opts = {}) {
     job.started_at = now();
     jobLog(job, `${idOnly ? 'Logging in for SteamID only' : 'Scanning'} ${accounts.length} account(s), ${timeout}ms timeout each, sequential.`);
     for (let i = 0; i < accounts.length; i++) {
+        if (job.cancelled) { jobLog(job, `Stopped after ${i}/${accounts.length}.`); break; }
         const acc = accounts[i];
         jobLog(job, `>> [${i + 1}/${accounts.length}] ${acc.username}`);
         let res;
@@ -179,9 +181,9 @@ async function runScanJob(job, accounts, timeout, opts = {}) {
         }
         job.results.push({ username: acc.username, ok: !!res?.ok, skipped: !!res?.skipped, reason: res?.reason || null, partial: res?.partial || null });
     }
-    job.status = 'done';
+    job.status = job.cancelled ? 'cancelled' : 'done';
     job.finished_at = now();
-    jobLog(job, `Done: ${job.ok}/${job.total} ok, ${job.failed} failed${job.guard_skipped ? `, ${job.guard_skipped} Steam-Guard-skipped` : ''}.`);
+    jobLog(job, `${job.cancelled ? 'Stopped' : 'Done'}: ${job.ok}/${job.total} ok, ${job.failed} failed${job.guard_skipped ? `, ${job.guard_skipped} Steam-Guard-skipped` : ''}.`);
 }
 
 // Sync one batch of accounts' sent-gift lists against Steam, reusing syncAccount
@@ -193,6 +195,7 @@ async function runSyncJob(job, accounts, timeout, concurrency) {
     let cursor = 0;
     const worker = async () => {
         while (cursor < accounts.length) {
+            if (job.cancelled) break;
             const i = cursor++;
             const acc = accounts[i];
             jobLog(job, `>> [${i + 1}/${accounts.length}] ${acc.username}`);
@@ -215,9 +218,9 @@ async function runSyncJob(job, accounts, timeout, concurrency) {
         }
     };
     await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
-    job.status = 'done';
+    job.status = job.cancelled ? 'cancelled' : 'done';
     job.finished_at = now();
-    jobLog(job, `Done: ${job.ok}/${job.total} ok, ${job.pruned} sent gift(s) pruned, ${job.failed} failed.`);
+    jobLog(job, `${job.cancelled ? 'Stopped' : 'Done'}: ${job.ok}/${job.total} ok, ${job.pruned} sent gift(s) pruned, ${job.failed} failed.`);
 }
 
 // Run ONE action against ONE account, reusing the same worker the CLI uses:
@@ -267,6 +270,7 @@ async function runWalletJob(job, accounts, { mode, timeout, concurrency }) {
     let cursor = 0;
     const worker = async () => {
         while (cursor < accounts.length) {
+            if (job.cancelled) break;
             const i = cursor++;
             const acc = accounts[i];
             jobLog(job, `>> [${i + 1}/${accounts.length}] ${acc.username}`);
@@ -283,9 +287,9 @@ async function runWalletJob(job, accounts, { mode, timeout, concurrency }) {
         }
     };
     await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
-    job.status = 'done';
+    job.status = job.cancelled ? 'cancelled' : 'done';
     job.finished_at = now();
-    jobLog(job, `Done: ${job.ok}/${job.total} ok, ${job.failed} failed.`);
+    jobLog(job, `${job.cancelled ? 'Stopped' : 'Done'}: ${job.ok}/${job.total} ok, ${job.failed} failed.`);
 }
 
 // Run a "remove friends" job (by name list or by friend_since date range).
@@ -314,6 +318,12 @@ async function runRemoveFriendsJob(job, account, opts) {
 // Queue any Steam-login job (scan or sync) so only one runs at a time.
 function enqueueSteamJob(job, run) {
     const start = async () => {
+        // Cancelled while it sat in the queue — never run it.
+        if (job.cancelled) {
+            if (job.status !== 'cancelled') { job.status = 'cancelled'; job.finished_at = now(); jobLog(job, 'Cancelled before start.'); }
+            if (steamQueue.length) steamQueue.shift().start();
+            return;
+        }
         steamBusy = true;
         try { await run(); }
         catch (err) {
@@ -322,12 +332,12 @@ function enqueueSteamJob(job, run) {
             jobLog(job, `Job crashed: ${err.message}`);
         } finally {
             steamBusy = false;
-            if (steamQueue.length) steamQueue.shift()();
+            if (steamQueue.length) steamQueue.shift().start();
         }
     };
     if (steamBusy) {
         jobLog(job, 'Queued behind a running Steam job.');
-        steamQueue.push(start);
+        steamQueue.push({ job, start });
     } else {
         start();
     }
@@ -780,8 +790,11 @@ async function handleAPI(req, res, url) {
 
     if (method === 'GET' && p === '/api/gifts/sent') {
         return sendJSON(res, 200, db.prepare(`
-            SELECT s.*, a.account_name FROM sent_gifts s
-            LEFT JOIN accounts a ON a.steam_id = s.account_steam_id
+            SELECT s.*, a.account_name,
+                   ra.steam_id AS recipient_account_id, ra.account_name AS recipient_account_name
+            FROM sent_gifts s
+            LEFT JOIN accounts a  ON a.steam_id  = s.account_steam_id
+            LEFT JOIN accounts ra ON ra.steam_id = s.recipient_steam_id
             ORDER BY s.sent_at IS NULL, s.sent_at ASC
         `).all());
     }
@@ -1020,6 +1033,28 @@ async function handleAPI(req, res, url) {
     if (method === 'GET' && mj) {
         const job = jobs.get(mj[1]);
         return job ? sendJSON(res, 200, jobView(job, true)) : sendJSON(res, 404, { error: 'no such job' });
+    }
+
+    // Stop a running job (cooperative — it stops after the account in flight) or
+    // cancel one still waiting in the queue.
+    mj = /^\/api\/jobs\/([0-9a-f]{12})\/cancel$/.exec(p);
+    if (method === 'POST' && mj) {
+        const job = jobs.get(mj[1]);
+        if (!job) return sendJSON(res, 404, { error: 'no such job' });
+        if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') {
+            return sendJSON(res, 200, jobView(job, false)); // already finished — no-op
+        }
+        job.cancelled = true;
+        const qi = steamQueue.findIndex((e) => e.job.id === job.id);
+        if (qi >= 0) {
+            steamQueue.splice(qi, 1); // still queued — pull it and finalize now
+            job.status = 'cancelled';
+            job.finished_at = now();
+            jobLog(job, 'Cancelled while queued.');
+        } else {
+            jobLog(job, 'Stop requested — stopping after the current account.');
+        }
+        return sendJSON(res, 200, jobView(job, false));
     }
 
     // --- gifting RPC for steam_profile_login.py (moves its DB access here) -----

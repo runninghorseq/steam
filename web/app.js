@@ -256,6 +256,26 @@ function walletFilterBar() {
     return bar;
 }
 
+// Sent-gift recipient cell. If the recipient is one of our own accounts (matched
+// by steam_id), clicking opens that account's detail dialog. Otherwise it's an
+// external Steam user — link out to their community profile in a new tab.
+function sentRecipientCell(g) {
+    const label = g.recipient_name || g.recipient_steam_id || '—';
+    if (g.recipient_account_id) {
+        const link = el('a', { href: '#', style: 'color:var(--accent); cursor:pointer', title: 'One of your accounts — view details' }, label);
+        link.onclick = (ev) => { ev.preventDefault(); openDetail(g.recipient_account_id); };
+        return el('td', {}, link, ' ', el('span', { className: 'tag loan', title: 'Recipient is your account' }, 'account'));
+    }
+    if (g.recipient_steam_id) {
+        return el('td', {}, el('a', {
+            href: `https://steamcommunity.com/profiles/${g.recipient_steam_id}`,
+            target: '_blank', rel: 'noopener noreferrer',
+            style: 'color:var(--accent)', title: 'External recipient — open Steam profile',
+        }, label));
+    }
+    return el('td', {}, label);
+}
+
 function viewSent() {
     const bar = toolbar({ placeholder: 'Filter is client-side below…' });
     const progress = el('div');
@@ -308,7 +328,7 @@ function viewSent() {
         boxes.push(cb);
         return el('tr', {}, el('td', {}, cb),
             el('td', { className: 'name' }, g.account_name || g.account_steam_id),
-            el('td', {}, g.recipient_name || g.recipient_steam_id || '—'),
+            sentRecipientCell(g),
             el('td', {}, g.item_name || '—'),
             el('td', { className: 'dim' }, date(g.sent_at)),
             el('td', {}, g.status || '—'),
@@ -446,23 +466,21 @@ function viewScan() {
     const wrap = el('div');
 
     const ta = el('textarea', {
-        placeholder: 'Paste account lines, one per line:\n  user----pass----email----steamID\n  user:pass\n  id|email|x|user|pass',
+        placeholder: 'Paste account lines, one per line — or drag a .txt/.csv file here:\n  user----pass----email----steamID\n  user:pass\n  id|email|x|user|pass',
         rows: 8,
         style: 'width:100%; font-family:var(--mono); font-size:13px; padding:10px; background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:8px; resize:vertical;'
     });
     const timeout = el('input', { type: 'number', value: '60', min: '10', step: '5', style: 'width:80px' });
     const rescan = el('input', { type: 'checkbox' });
 
-    // File upload: read the chosen file's text into the box and remember its name
-    // as the account source. `source` tracks the current textarea content's origin;
-    // typing by hand clears it so we never mislabel pasted lines with a filename.
+    // File upload: read the chosen/dropped file's text into the box and remember
+    // its name as the account source. `source` tracks the current textarea
+    // content's origin; typing by hand clears it so we never mislabel pasted lines.
     let source = null;
     const fileInput = el('input', { type: 'file', accept: '.txt,.csv,text/plain', style: 'display:none' });
     const pickBtn = el('button', { className: 'act', type: 'button' }, 'Choose file…');
     const sourceLabel = el('span', { className: 'dim', style: 'font-size:12px' }, 'no file — source will be blank');
-    pickBtn.onclick = () => fileInput.click();
-    fileInput.onchange = () => {
-        const f = fileInput.files && fileInput.files[0];
+    const readFile = (f) => {
         if (!f) return;
         const reader = new FileReader();
         reader.onload = () => {
@@ -473,6 +491,19 @@ function viewScan() {
         reader.onerror = () => toast('Could not read that file', true);
         reader.readAsText(f);
     };
+    pickBtn.onclick = () => fileInput.click();
+    fileInput.onchange = () => readFile(fileInput.files && fileInput.files[0]);
+
+    // Drag-and-drop a file onto the textarea. preventDefault on dragover is what
+    // makes it a valid drop target (otherwise the browser just opens the file).
+    ta.addEventListener('dragover', (e) => { e.preventDefault(); ta.style.borderColor = 'var(--accent)'; });
+    ta.addEventListener('dragleave', () => { ta.style.borderColor = 'var(--border)'; });
+    ta.addEventListener('drop', (e) => {
+        e.preventDefault();
+        ta.style.borderColor = 'var(--border)';
+        const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (f) readFile(f);
+    });
     const rescanLabel = el('label', { style: 'display:flex; gap:6px; align-items:center; font-size:12px; color:var(--muted); cursor:pointer' }, rescan, 'Rescan accounts already in DB');
     // Default mode: log in just far enough to learn each SteamID64 and save it \u2014
     // fast, and works when the uploaded lines have no SteamID (add-only can't).
@@ -599,17 +630,31 @@ async function renderJobList(container) {
         const badge = j.status === 'running' ? el('span', { className: 'tag loan' }, 'running')
             : j.status === 'queued' ? el('span', { className: 'tag' }, 'queued')
             : j.status === 'error' ? el('span', { className: 'tag over' }, 'error')
+            : j.status === 'cancelled' ? el('span', { className: 'tag over' }, 'stopped')
             : el('span', { className: 'tag done' }, 'done');
         const open = el('button', { className: 'act' }, 'View log');
         const panel = el('div');
         open.onclick = () => watchJob(j.id, panel);
+        const controls = [open];
+        // Stop a running job (cooperative) or cancel one still queued.
+        if (j.status === 'running' || j.status === 'queued') {
+            const queued = j.status === 'queued';
+            const stop = el('button', { className: 'act danger' }, queued ? 'Cancel' : 'Stop');
+            stop.onclick = async () => {
+                if (!confirm(queued ? 'Cancel this queued job?' : 'Stop this job?\n\nIt finishes the account currently in flight, then stops.')) return;
+                stop.disabled = true;
+                try { await api(`/api/jobs/${j.id}/cancel`, { method: 'POST' }); toast(queued ? 'Cancelled' : 'Stopping…'); renderJobList(container); }
+                catch (e) { toast(e.message, true); stop.disabled = false; }
+            };
+            controls.push(stop);
+        }
         return el('div', { style: 'border:1px solid var(--border); border-radius:8px; padding:10px; margin-bottom:8px; background:var(--panel)' },
             el('div', { style: 'display:flex; gap:12px; align-items:center; flex-wrap:wrap' },
                 badge,
                 el('b', { style: 'font-family:var(--mono)' }, j.id),
                 el('span', { className: 'dim' }, `${j.done}/${j.total} · ${j.ok} ok · ${j.failed} failed${j.guard_skipped ? ` · ${j.guard_skipped} guard-skipped` : ''}`),
                 el('span', { className: 'dim', style: 'font-size:12px' }, dateTime(j.created_at)),
-                open),
+                ...controls),
             panel);
     });
     container.replaceChildren(...rows);
@@ -629,7 +674,7 @@ function watchJob(id, panel, onDone) {
         const atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 30;
         pre.textContent = (job.lines || []).join('\n');
         if (atBottom) pre.scrollTop = pre.scrollHeight;
-        if (job.status === 'done' || job.status === 'error') {
+        if (job.status === 'done' || job.status === 'error' || job.status === 'cancelled') {
             clearInterval(jobPoll); jobPoll = null;
             // Refresh the header stats only — NOT the whole view, which would
             // rebuild the job list and detach this very log panel.
