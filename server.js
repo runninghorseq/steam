@@ -622,6 +622,22 @@ async function handleAPI(req, res, url) {
 
     if (method === 'GET' && p === '/api/summary') return sendJSON(res, 200, summary());
 
+    // Per-filter record counts for the accounts page chips.
+    if (method === 'GET' && p === '/api/accounts/filter-counts') {
+        const c = (sql) => db.prepare(sql).get().c;
+        return sendJSON(res, 200, {
+            total: c('SELECT COUNT(*) c FROM accounts'),
+            funded: c('SELECT COUNT(*) c FROM accounts WHERE wallet_balance_cents > 0'),
+            skip_wallet: c('SELECT COUNT(*) c FROM accounts WHERE skip_wallet = 1'),
+            tracked: c('SELECT COUNT(*) c FROM accounts WHERE skip_wallet = 0'),
+            loaned: c('SELECT COUNT(*) c FROM accounts WHERE loan_id IS NOT NULL'),
+            no_token: c('SELECT COUNT(*) c FROM accounts WHERE account_name IS NULL OR lower(account_name) NOT IN (SELECT lower(account_name) FROM auth_tokens)'),
+            renting: c("SELECT COUNT(*) c FROM accounts WHERE status = 'renting'"),
+            sold: c("SELECT COUNT(*) c FROM accounts WHERE status = 'sold'"),
+            reserved: c("SELECT COUNT(*) c FROM accounts WHERE status = 'reserved'"),
+        });
+    }
+
     if (method === 'GET' && p === '/api/accounts') {
         const num = (k) => url.searchParams.get(k) !== null && url.searchParams.get(k) !== '' ? Number(url.searchParams.get(k)) : null;
         return sendJSON(res, 200, listAccounts({

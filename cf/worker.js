@@ -477,6 +477,23 @@ async function handleApi(req, env, url, ctx) {
 
     if (method === 'GET' && p === '/api/summary') return json(await summary(env));
 
+    // Per-filter record counts for the accounts page chips (each is that filter
+    // alone, across all accounts). Matches the WHERE clauses in listAccounts.
+    if (method === 'GET' && p === '/api/accounts/filter-counts') {
+        const c = async (sql) => (await env.DB.prepare(sql).first()).c;
+        return json({
+            total: await c('SELECT COUNT(*) c FROM accounts'),
+            funded: await c('SELECT COUNT(*) c FROM accounts WHERE wallet_balance_cents > 0'),
+            skip_wallet: await c('SELECT COUNT(*) c FROM accounts WHERE skip_wallet = 1'),
+            tracked: await c('SELECT COUNT(*) c FROM accounts WHERE skip_wallet = 0'),
+            loaned: await c('SELECT COUNT(*) c FROM accounts WHERE loan_id IS NOT NULL'),
+            no_token: await c('SELECT COUNT(*) c FROM accounts WHERE account_name IS NULL OR lower(account_name) NOT IN (SELECT lower(account_name) FROM auth_tokens)'),
+            renting: await c("SELECT COUNT(*) c FROM accounts WHERE status = 'renting'"),
+            sold: await c("SELECT COUNT(*) c FROM accounts WHERE status = 'sold'"),
+            reserved: await c("SELECT COUNT(*) c FROM accounts WHERE status = 'reserved'"),
+        });
+    }
+
     if (method === 'GET' && p === '/api/accounts') {
         const numParam = (k) => { const v = url.searchParams.get(k); return v !== null && v !== '' ? Number(v) : null; };
         return json(await listAccounts(env, {

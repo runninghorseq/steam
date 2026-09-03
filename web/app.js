@@ -11,7 +11,10 @@ const state = {
     summary: null,
     page: 1,
     perPage: 50,
-    total: 0
+    total: 0,
+    // Show a record count on each accounts filter chip. Persisted, off by default.
+    showCounts: (() => { try { return localStorage.getItem('showCounts') === '1'; } catch { return false; } })(),
+    filterCounts: {}
 };
 const ACCOUNTS_DEFAULT = { sort: 'wallet', dir: 'desc' };
 // Business status values (must match the server's STATUSES).
@@ -112,13 +115,15 @@ function statCards(s) {
 
 // --- views ------------------------------------------------------------------
 
-function toolbar({ filters = [], placeholder = 'Search…' } = {}) {
+function toolbar({ filters = [], placeholder = 'Search…', counts = null } = {}) {
     const search = el('input', { type: 'search', placeholder, value: state.q });
     let timer;
     search.oninput = () => { clearTimeout(timer); timer = setTimeout(() => { state.q = search.value.trim(); state.page = 1; load(); }, 220); };
     const bar = el('div', { className: 'toolbar' }, search);
     filters.forEach(([key, label]) => {
-        const b = el('button', { className: 'chip' + (state.filter === key ? ' on' : '') }, label);
+        // When counts is provided, append the matching record count per filter.
+        const n = counts ? counts[key] : null;
+        const b = el('button', { className: 'chip' + (state.filter === key ? ' on' : '') }, n != null ? `${label} (${n})` : label);
         b.onclick = () => { state.filter = state.filter === key ? '' : key; state.page = 1; load(); };
         bar.append(b);
     });
@@ -194,8 +199,18 @@ function viewAccounts() {
     const bar = toolbar({
         placeholder: 'Search account, persona, email, steamID…',
         filters: [['funded', 'Funded'], ['skip_wallet', 'skip_wallet'], ['tracked', 'Tracked'], ['loaned', 'Loaned'], ['no_token', 'No token'],
-            ['renting', 'Renting'], ['sold', 'Sold'], ['reserved', 'Reserved']]
+            ['renting', 'Renting'], ['sold', 'Sold'], ['reserved', 'Reserved']],
+        counts: state.showCounts ? state.filterCounts : null
     });
+    // Toggle the per-filter record counts on the chips (persisted).
+    const countsToggle = el('button', { className: 'chip' + (state.showCounts ? ' on' : ''), title: 'Show a record count on each filter' },
+        state.showCounts ? `# counts${state.filterCounts.total != null ? ` · ${state.filterCounts.total} total` : ''}` : '# counts off');
+    countsToggle.onclick = () => {
+        state.showCounts = !state.showCounts;
+        try { localStorage.setItem('showCounts', state.showCounts ? '1' : '0'); } catch { /* ignore */ }
+        load();
+    };
+    bar.insertBefore(countsToggle, bar.querySelector('.count'));
 
     // Bulk refresh wallet+level across all tokened accounts, minus skip_wallet /
     // loaned (mirrors update_wallet_level.js). Progress streams into `progress`.
@@ -1125,26 +1140,41 @@ async function load() {
             const needle = state.q.toLowerCase();
             state.rows = rows.filter((r) => JSON.stringify(r).toLowerCase().includes(needle));
         }
+        // Per-filter counts for the accounts chips, only when the toggle is on.
+        if (state.view === 'accounts' && state.showCounts) {
+            state.filterCounts = await api('/api/accounts/filter-counts').catch(() => ({}));
+        }
         $('#view').replaceChildren(...VIEWS[state.view]());
     } catch (err) {
         $('#view').replaceChildren(el('div', { className: 'empty' }, `Failed to load: ${err.message}`));
     }
 }
 
+// Switch to a tab and (re)load it. Resets the per-view search/filter/page state.
+function selectView(view) {
+    if (!VIEWS[view]) view = 'accounts';
+    document.querySelectorAll('nav button').forEach((x) => x.classList.toggle('on', x.dataset.view === view));
+    if (jobPoll) { clearInterval(jobPoll); jobPoll = null; }
+    state.view = view;
+    state.q = '';
+    state.filter = '';
+    state.wallet = { currency: '', min: '', max: '' };
+    state.page = 1;
+    if (view === 'accounts') { state.sort = ACCOUNTS_DEFAULT.sort; state.dir = ACCOUNTS_DEFAULT.dir; }
+    load();
+}
+
+// The current tab lives in the URL hash (#friends), so an F5 stays on it and
+// back/forward navigate between tabs. Nav clicks just set the hash.
+const viewFromHash = () => (location.hash || '').replace(/^#/, '');
 document.querySelectorAll('nav button').forEach((b) => {
     b.onclick = () => {
-        document.querySelectorAll('nav button').forEach((x) => x.classList.remove('on'));
-        b.classList.add('on');
-        if (jobPoll) { clearInterval(jobPoll); jobPoll = null; }
-        state.view = b.dataset.view;
-        state.q = '';
-        state.filter = '';
-        state.wallet = { currency: '', min: '', max: '' };
-        state.page = 1;
-        if (state.view === 'accounts') { state.sort = ACCOUNTS_DEFAULT.sort; state.dir = ACCOUNTS_DEFAULT.dir; }
-        load();
+        const v = b.dataset.view;
+        if (viewFromHash() === v) selectView(v); // re-click active tab: reload it
+        else location.hash = v;                  // else the hashchange handler loads it
     };
 });
+window.addEventListener('hashchange', () => selectView(viewFromHash()));
 $('#refresh').onclick = load;
 // Close the detail dialog via the button, Escape, or a click on the backdrop
 // (a click whose target is the <dialog> itself, i.e. outside the content box).
@@ -1154,4 +1184,5 @@ detailDlg.addEventListener('close', () => stopLoginPoll());
 detailDlg.addEventListener('click', (e) => { if (e.target === detailDlg) detailDlg.close(); });
 $('#detail-close').onclick = () => detailDlg.close();
 
-load();
+// Honor the hash on first load so a refresh (F5) restores the tab you were on.
+selectView(viewFromHash() || 'accounts');
