@@ -357,6 +357,22 @@ const isLoopback = (h) => h === '127.0.0.1' || h === '::1' || h === 'localhost';
 const WEB_DIR = path.join(__dirname, 'web');
 const now = () => Math.floor(Date.now() / 1000);
 
+// Business status an account can be published with (default 'available').
+const STATUSES = ['available', 'renting', 'sold', 'reserved', 'disabled'];
+
+// Push an account's new status to another repo's webhook (best-effort, fire and
+// forget; the /api/accounts/feed pull stays authoritative if a push is missed).
+function pushStatusWebhook(account) {
+    const url = (process.env.STATUS_WEBHOOK_URL || '').trim();
+    if (!url || typeof fetch !== 'function') return;
+    const token = (process.env.STATUS_WEBHOOK_TOKEN || '').trim();
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ event: 'account.status', account, at: now() }),
+    }).catch(() => {});
+}
+
 // ---------------------------------------------------------------------------
 // queries
 // ---------------------------------------------------------------------------
@@ -365,6 +381,7 @@ const ACCOUNT_COLS = `
     a.steam_id, a.account_name, a.persona, a.country, a.email,
     a.wallet_currency, a.wallet_balance_cents, a.steam_level, a.steam_points,
     a.loan_id, a.skip_wallet, a.source, a.email_token_refreshed_at, a.scanned_at,
+    a.status, a.status_updated_at,
     (SELECT COUNT(*) FROM auth_tokens t WHERE lower(t.account_name) = lower(a.account_name)) AS has_token,
     (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id) AS friend_count,
     (SELECT COUNT(*) FROM sent_gifts s WHERE s.account_steam_id = a.steam_id) AS sent_gift_count,
@@ -402,6 +419,7 @@ function listAccounts({ q, sort, dir, filter, currency, walletMin, walletMax, pa
     if (filter === 'tracked') where.push('a.skip_wallet = 0');
     if (filter === 'no_token') where.push("(a.account_name IS NULL OR lower(a.account_name) NOT IN (SELECT lower(account_name) FROM auth_tokens))");
     if (filter === 'funded') where.push('a.wallet_balance_cents > 0');
+    if (STATUSES.includes(filter)) { where.push('a.status = @status'); params.status = filter; }
 
     // Wallet filters. Amounts arrive in major currency units and are compared in
     // cents. currency is an exact ECurrencyCode match; only meaningful together
@@ -743,6 +761,29 @@ async function handleAPI(req, res, url) {
             : sendJSON(res, 404, { error: 'account not found' });
     }
 
+    // Set an account's business status; push to the other repo's webhook if set.
+    m = /^\/api\/accounts\/(\d{17})\/status$/.exec(p);
+    if (method === 'POST' && m) {
+        const { status } = await readBody(req);
+        if (!STATUSES.includes(status)) return sendJSON(res, 400, { error: `status must be one of: ${STATUSES.join(', ')}` });
+        const changes = db.prepare('UPDATE accounts SET status = ?, status_updated_at = unixepoch(), updated_at = unixepoch() WHERE steam_id = ?').run(status, m[1]).changes;
+        if (!changes) return sendJSON(res, 404, { error: 'account not found' });
+        const account = db.prepare('SELECT steam_id, account_name, persona, country, status, status_updated_at FROM accounts WHERE steam_id = ?').get(m[1]);
+        if (process.env.STATUS_WEBHOOK_URL) pushStatusWebhook(account); // best-effort, non-blocking
+        return sendJSON(res, 200, { steam_id: m[1], status, pushed: !!process.env.STATUS_WEBHOOK_URL });
+    }
+
+    // Public feed for another repo: accounts + status (optionally ?status=filter).
+    if (method === 'GET' && p === '/api/accounts/feed') {
+        const status = url.searchParams.get('status');
+        if (status && !STATUSES.includes(status)) return sendJSON(res, 400, { error: `unknown status '${status}'` });
+        const rows = db.prepare(
+            `SELECT steam_id, account_name, persona, country, wallet_currency, wallet_balance_cents, steam_level, status, status_updated_at
+             FROM accounts ${status ? 'WHERE status = ?' : ''} ORDER BY status_updated_at DESC, account_name COLLATE NOCASE`
+        ).all(...(status ? [status] : []));
+        return sendJSON(res, 200, { count: rows.length, statuses: STATUSES, accounts: rows });
+    }
+
     // Manage credentials: email / email_password / steam_password + refresh token.
     m = /^\/api\/accounts\/(\d{17})\/credentials$/.exec(p);
     if (method === 'POST' && m) {
@@ -917,9 +958,7 @@ async function handleAPI(req, res, url) {
         const parsedCount = accounts.length;
         let skippedExisting = [];
         if (!rescan) {
-            const existing = new Set(
-                db.prepare('SELECT lower(account_name) AS n FROM accounts WHERE account_name IS NOT NULL').all().map((r) => r.n)
-            );
+            const existing = new Set(await store.accountNames());
             skippedExisting = accounts.filter((a) => existing.has(a.username.toLowerCase())).map((a) => a.username);
             accounts = accounts.filter((a) => !existing.has(a.username.toLowerCase()));
         }
@@ -930,30 +969,33 @@ async function handleAPI(req, res, url) {
             });
         }
 
-        // "Just add, don't scan": pull the steamID (and email) straight out of each
-        // line and upsert a stub row — no Steam login. Lines with no 17-digit
-        // SteamID64 can't be added this way (the accounts PK is steam_id) and are
-        // reported back. Synchronous: there is no job.
+        // "Just add, don't scan": upsert a stub row per line — no Steam login. If a
+        // line carries a 17-digit SteamID64 it's keyed by that; otherwise it's keyed
+        // by a `pending:<username>` placeholder that a later SteamID-only scan
+        // resolves to the real id (via store.dropPendingStub). Writes through store
+        // so it lands in the live DB (Turso). Synchronous: there is no job.
         if (addOnly) {
-            const added = [];
-            const noSteamID = [];
-            const addTx = db.transaction(() => {
-                for (const a of accounts) {
-                    const idm = /\b(765611\d{11})\b/.exec(a.rawLine || '');
-                    if (!idm) { noSteamID.push(a.username); continue; }
-                    // Find the email by splitting on the line delimiters, so a dash
-                    // run ("----") can't be swallowed into the local part.
-                    const email = (a.rawLine || '').split(/----|[|:]/)
-                        .map((f) => f.trim())
-                        .find((f) => /^[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}$/.test(f)) || null;
-                    addAccountStub({ steam_id: idm[1], account_name: a.username, email, source: a.source });
+            const added = [];        // had a real SteamID64
+            const addedPending = []; // no id -> pending:<username> placeholder
+            for (const a of accounts) {
+                const idm = /\b(765611\d{11})\b/.exec(a.rawLine || '');
+                // Find the email by splitting on the line delimiters, so a dash run
+                // ("----") can't be swallowed into the local part.
+                const email = (a.rawLine || '').split(/----|[|:]/)
+                    .map((f) => f.trim())
+                    .find((f) => /^[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}$/.test(f)) || null;
+                if (idm) {
+                    await store.addAccountStub({ steam_id: idm[1], account_name: a.username, email, source: a.source });
                     added.push(a.username);
+                } else {
+                    await store.addAccountStub({ steam_id: `pending:${a.username.toLowerCase()}`, account_name: a.username, email, source: a.source });
+                    addedPending.push(a.username);
                 }
-            });
-            addTx();
+            }
             return sendJSON(res, 200, {
-                mode: 'add-only', added: added.length, added_names: added,
-                skipped_no_steamid: noSteamID, skipped_existing: skippedExisting, skipped_failed: skippedFailed
+                mode: 'add-only', added: added.length + addedPending.length,
+                added_names: added, added_pending: addedPending,
+                skipped_existing: skippedExisting, skipped_failed: skippedFailed
             });
         }
 

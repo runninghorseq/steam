@@ -116,6 +116,41 @@ async function saveAccount(partial) {
          p.source ?? null, p.steam_password ?? null, p.email_password ?? null, ts, ts, ts]);
 }
 
+// Insert a bare account row (no login) — account_name / email / source only, no
+// scanned_at. Used by "just add to DB". The steam_id may be a real SteamID64 or
+// a `pending:<username>` placeholder for accounts whose id isn't known yet.
+async function addAccountStub(partial) {
+    if (USE_WORKER) return wcall('addAccountStub', { partial });
+    if (!USE_D1) return L().addAccountStub(partial);
+    const ts = now();
+    await d1n.d1run(
+        'INSERT INTO accounts (steam_id, account_name, email, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) '
+        + 'ON CONFLICT(steam_id) DO UPDATE SET '
+        + '  account_name = COALESCE(excluded.account_name, accounts.account_name),'
+        + '  email = COALESCE(excluded.email, accounts.email),'
+        + '  source = COALESCE(excluded.source, accounts.source),'
+        + '  updated_at = excluded.updated_at',
+        [partial.steam_id, partial.account_name ?? null, partial.email ?? null, partial.source ?? null, ts, ts]);
+}
+
+// Remove the `pending:<username>` placeholder once the real SteamID row exists
+// (called after a scan learns the id) so we don't keep a duplicate.
+async function dropPendingStub(accountName) {
+    if (!accountName) return;
+    if (USE_WORKER) return wcall('dropPendingStub', { accountName });
+    const sql = "DELETE FROM accounts WHERE steam_id LIKE 'pending:%' AND lower(account_name) = lower(?)";
+    if (!USE_D1) { L().db.prepare(sql).run(accountName); return; }
+    await d1n.d1run(sql, [accountName]);
+}
+
+// Lowercased login names of every account — for the scan/add "already in DB" check.
+async function accountNames() {
+    const sql = 'SELECT lower(account_name) AS n FROM accounts WHERE account_name IS NOT NULL';
+    if (USE_WORKER) return (await wcall('accountNames', {})).map((r) => r.n);
+    if (!USE_D1) return L().db.prepare(sql).all().map((r) => r.n);
+    return (await d1n.d1all(sql, [])).map((r) => r.n);
+}
+
 // --- friends (COALESCE upsert — preserves gifted_at/gifted_game/country) ------
 
 async function saveFriends(accountSteamID, friends) {
@@ -329,6 +364,7 @@ module.exports = {
     USE_D1, USE_WORKER,
     getRefreshToken, saveRefreshToken, clearRefreshToken,
     saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts, saveGamePlaytime, reconcileSentGifts,
+    addAccountStub, dropPendingStub, accountNames,
     accountNameBySteamID, accountBySteamID, accountByName, removeFriendRows,
     walletRefreshSelection, friendSteamIDs, mailTokenAccounts, saveEmailRefreshToken,
     parseGiftedAt,

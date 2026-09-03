@@ -46,6 +46,12 @@ if (!accountCols.includes('email_client_id')) {
 if (!accountCols.includes('email_token_refreshed_at')) {
     db.exec('ALTER TABLE accounts ADD COLUMN email_token_refreshed_at INTEGER');
 }
+if (!accountCols.includes('status')) {
+    db.exec("ALTER TABLE accounts ADD COLUMN status TEXT NOT NULL DEFAULT 'available'");
+}
+if (!accountCols.includes('status_updated_at')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN status_updated_at INTEGER');
+}
 
 const upsertAccount = db.prepare(`
 INSERT INTO accounts (steam_id, account_name, persona, country, email, wallet_currency, wallet_balance_cents, steam_level, steam_points, source, steam_password, email_password, scanned_at, created_at, updated_at)

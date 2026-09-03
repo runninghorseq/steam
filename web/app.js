@@ -14,6 +14,8 @@ const state = {
     total: 0
 };
 const ACCOUNTS_DEFAULT = { sort: 'wallet', dir: 'desc' };
+// Business status values (must match the server's STATUSES).
+const STATUSES = ['available', 'renting', 'sold', 'reserved', 'disabled'];
 
 const $ = (sel) => document.querySelector(sel);
 const el = (tag, props = {}, ...kids) => {
@@ -122,12 +124,14 @@ function viewAccounts() {
     ];
     const rows = table(cols, state.rows, (a) => {
         const flags = el('td');
+        if (String(a.steam_id).startsWith('pending:')) flags.append(el('span', { className: 'tag notok', title: 'Added without a SteamID — run a SteamID-only scan to resolve it' }, 'no SteamID'), ' ');
         if (a.skip_wallet) flags.append(el('span', { className: 'tag skip' }, 'skip_wallet'), ' ');
         if (a.loan_id != null) flags.append(el('span', { className: 'tag loan' }, `loan #${a.loan_id}`), ' ');
         if (!a.has_token) flags.append(el('span', { className: 'tag notok' }, 'no token'), ' ');
         if (a.email_token_refreshed_at && (Date.now() / 1000 - a.email_token_refreshed_at) >= MAIL_TOKEN_REFRESH_DAYS * 86400) {
             flags.append(el('span', { className: 'tag notok', title: 'Mailbox OAuth token is older than 2 months — rotate it' }, 'mail due'));
         }
+        if (a.status && a.status !== 'available') flags.append(el('span', { className: 'tag loan', title: 'business status' }, a.status), ' ');
 
         const toggle = el('button', { className: 'act' }, a.skip_wallet ? 'Track wallet' : 'Skip wallet');
         toggle.onclick = async () => {
@@ -174,7 +178,8 @@ function viewAccounts() {
 
     const bar = toolbar({
         placeholder: 'Search account, persona, email, steamID…',
-        filters: [['funded', 'Funded'], ['skip_wallet', 'skip_wallet'], ['tracked', 'Tracked'], ['loaned', 'Loaned'], ['no_token', 'No token']]
+        filters: [['funded', 'Funded'], ['skip_wallet', 'skip_wallet'], ['tracked', 'Tracked'], ['loaned', 'Loaned'], ['no_token', 'No token'],
+            ['renting', 'Renting'], ['sold', 'Sold'], ['reserved', 'Reserved']]
     });
 
     // Bulk refresh wallet+level across all tokened accounts, minus skip_wallet /
@@ -555,7 +560,7 @@ function viewScan() {
             const job = await api('/api/scan', { method: 'POST', body: JSON.stringify({ text, timeout: (Number(timeout.value) || 60) * 1000, rescan: rescan.checked, source, addOnly: addOnly.checked, idOnly: idOnly.checked }) });
             if (job.mode === 'add-only') {
                 const parts = [`added ${job.added}`];
-                if (job.skipped_no_steamid?.length) parts.push(`${job.skipped_no_steamid.length} no steamID`);
+                if (job.added_pending?.length) parts.push(`${job.added_pending.length} without SteamID (pending)`);
                 if (job.skipped_existing?.length) parts.push(`${job.skipped_existing.length} already in DB`);
                 if (job.skipped_failed?.length) parts.push(`${job.skipped_failed.length} failed/invalid`);
                 toast(parts.join(', '), job.added === 0);
@@ -799,6 +804,12 @@ function credentialsSection(a) {
 }
 
 async function openDetail(steamID) {
+    // Placeholder rows have no real SteamID, so the detail endpoint (keyed on a
+    // 17-digit id) can't load them — guide the admin to scan instead.
+    if (String(steamID).startsWith('pending:')) {
+        toast('No SteamID yet — run a "SteamID only" scan to resolve this account, then open it.', true);
+        return;
+    }
     const dlg = $('#detail');
     const body = $('#detail-body');
     body.replaceChildren(el('div', { className: 'empty' }, 'Loading…'));
@@ -1028,7 +1039,24 @@ async function openDetail(steamID) {
         el('span', { className: 'dim', style: 'font-size:12px' }, 'Token:'),
         pw, fetchBtn, guardInput, guardBtn, tokenStatus);
 
-    body.replaceChildren(runBar, rfBar, tokenBar, runLog, kv, tabs, pane);
+    // Business status — set it and (if a webhook is configured) publish to the
+    // other repo. Saved immediately on change.
+    const statusSel = el('select', { style: 'padding:4px 8px; background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:6px' },
+        ...STATUSES.map((s) => el('option', { value: s, selected: (a.status || 'available') === s }, s)));
+    statusSel.onchange = async () => {
+        const prev = a.status || 'available';
+        statusSel.disabled = true;
+        try {
+            const r = await api(`/api/accounts/${a.steam_id}/status`, { method: 'POST', body: JSON.stringify({ status: statusSel.value }) });
+            a.status = statusSel.value;
+            toast(`Status: ${statusSel.value}${r.pushed ? ' · pushed' : ''}`);
+        } catch (e) { toast(e.message, true); statusSel.value = prev; }
+        statusSel.disabled = false;
+    };
+    const statusBar = el('div', { className: 'toolbar', style: 'margin-bottom:14px' },
+        el('span', { className: 'dim', style: 'font-size:12px' }, 'Status:'), statusSel);
+
+    body.replaceChildren(runBar, rfBar, tokenBar, statusBar, runLog, kv, tabs, pane);
 }
 
 // --- loading ----------------------------------------------------------------

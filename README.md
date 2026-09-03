@@ -152,6 +152,51 @@ sqlite3 /path/to/new.db < /Users/lequangha/fungaming/steam/steam/schema.sql
 
 From Node, Python, Go etc., just open the file with any standard SQLite driver — no migrations to run, the schema is `CREATE TABLE IF NOT EXISTS` so it's safe to attach to.
 
+### Account status feed & webhook (HTTP)
+
+Each account carries a business **status** — one of `available` (default), `renting`, `sold`, `reserved`, `disabled` (`accounts.status`, with `accounts.status_updated_at`). Set it in the dashboard (account detail → **Status**) or via the API. Another project can consume it two ways; base URL is the Worker, e.g. `https://steam-dashboard.fungamingsteam.workers.dev`.
+
+**Pull — status feed**
+
+```
+GET /api/accounts/feed[?status=<available|renting|sold|reserved|disabled>]
+Authorization: Bearer <FEED_TOKEN>      # or ?token=<FEED_TOKEN>, or the dashboard token
+```
+
+```json
+{
+  "count": 12,
+  "statuses": ["available", "renting", "sold", "reserved", "disabled"],
+  "accounts": [
+    { "steam_id": "765...", "account_name": "...", "persona": "...", "country": "US",
+      "wallet_currency": "USD", "wallet_balance_cents": 1234, "steam_level": 10,
+      "status": "renting", "status_updated_at": 1788400000 }
+  ]
+}
+```
+
+**Push — status webhook**
+
+When a status changes, the app POSTs to `STATUS_WEBHOOK_URL` (if configured), with `Authorization: Bearer <STATUS_WEBHOOK_TOKEN>`:
+
+```json
+{ "event": "account.status", "at": 1788400000,
+  "account": { "steam_id": "765...", "account_name": "...", "persona": "...",
+               "country": "US", "status": "sold", "status_updated_at": 1788400000 } }
+```
+
+Pushes are best-effort (fire-and-forget). Treat the **pull feed as authoritative** — re-pull periodically and upsert by `steam_id`, rather than relying on every push landing.
+
+**Set a status** — `POST /api/accounts/<steamID64>/status` with `{"status":"renting"}` (dashboard token). Unknown values return 400.
+
+**Config** — Worker secrets, all optional:
+
+| Var | Purpose |
+| --- | --- |
+| `FEED_TOKEN` | Scoped read token for the feed (else the full dashboard token is required) |
+| `STATUS_WEBHOOK_URL` | Where to POST on each change (unset = no push, feed still works) |
+| `STATUS_WEBHOOK_TOKEN` | Bearer token sent with the webhook |
+
 ### Conventions a consumer must know
 
 | Topic | Detail |
@@ -162,6 +207,7 @@ From Node, Python, Go etc., just open the file with any standard SQLite driver �
 | Package ID 0 | Filtered out — the scanner skips Steam's system-default "Anonymous" package. |
 | Re-runs | Upsert by primary key; `accounts.scanned_at` is the timestamp of the most recent scan. |
 | `auth_tokens` | Treat as secrets. Don't expose, log, or commit. Refresh tokens grant full account access. |
+| `accounts.status` | Business status: `available` (default), `renting`, `sold`, `reserved`, `disabled`. Also served over HTTP — see the status feed & webhook above. |
 
 ### Concurrent access
 

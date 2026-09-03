@@ -185,11 +185,14 @@ function scanAccount(account, opts = {}) {
             // wallet, friends, licenses, gifts, or the community-page fetch.
             if (idOnly) {
                 store.saveAccount({ steam_id: steamID, account_name: account.username, source: account.source ?? null, steam_password: account.password ?? null })
+                    .then(() => store.dropPendingStub(account.username)) // replace any pending:<username> placeholder
                     .then(() => { log(`${tag} steamID saved`); finish({ ok: true, account, steam_id: steamID }); })
                     .catch((e) => finish({ ok: false, reason: e.message, account }));
                 return;
             }
 
+            // Now that we have the real SteamID, drop any add-only placeholder row.
+            store.dropPendingStub(account.username).catch(() => {});
             client.setPersona(SteamUser.EPersonaState.Online);
             client.gamesPlayed([]);
 

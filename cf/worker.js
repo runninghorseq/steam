@@ -11,6 +11,9 @@ import { createClient } from '@libsql/client/web';
 
 const now = () => Math.floor(Date.now() / 1000);
 
+// Business status an account can be published with (default 'available').
+const STATUSES = ['available', 'renting', 'sold', 'reserved', 'disabled'];
+
 function json(body, status = 200, extraHeaders = {}) {
     return new Response(JSON.stringify(body), {
         status,
@@ -67,6 +70,9 @@ function checkAuth(req, url, env) {
     const cookie = parseCookies(req).dash_token;
     const header = req.headers.get('x-dashboard-token') || (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
     if (tokenMatches(cookie, TOKEN) || tokenMatches(header, TOKEN)) return null;
+    // The status feed can also be read with a scoped FEED_TOKEN (given to the
+    // other repo) instead of the full dashboard token.
+    if (url.pathname === '/api/accounts/feed' && env.FEED_TOKEN && (tokenMatches(q, env.FEED_TOKEN) || tokenMatches(header, env.FEED_TOKEN))) return null;
     if (url.pathname.startsWith('/api/')) return json({ error: 'unauthorized' }, 401);
     return new Response(
         '<!doctype html><meta charset=utf-8><body style="font:15px system-ui;max-width:34rem;margin:12vh auto;padding:0 1rem;color:#333"><h2>Authorization required</h2><p>Open this dashboard with <code>?token=YOUR_TOKEN</code> appended once. It is then remembered in a cookie.</p></body>',
@@ -113,6 +119,7 @@ const ACCOUNT_COLS = `
     a.steam_id, a.account_name, a.persona, a.country, a.email,
     a.wallet_currency, a.wallet_balance_cents, a.steam_level, a.steam_points,
     a.loan_id, a.skip_wallet, a.source, a.email_token_refreshed_at, a.scanned_at,
+    a.status, a.status_updated_at,
     (SELECT COUNT(*) FROM auth_tokens t WHERE lower(t.account_name) = lower(a.account_name)) AS has_token,
     (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id) AS friend_count,
     (SELECT COUNT(*) FROM sent_gifts s WHERE s.account_steam_id = a.steam_id) AS sent_gift_count,
@@ -137,6 +144,7 @@ async function listAccounts(env, { q, sort, dir, filter, currency, walletMin, wa
     if (filter === 'tracked') where.push('a.skip_wallet = 0');
     if (filter === 'no_token') where.push('(a.account_name IS NULL OR lower(a.account_name) NOT IN (SELECT lower(account_name) FROM auth_tokens))');
     if (filter === 'funded') where.push('a.wallet_balance_cents > 0');
+    if (STATUSES.includes(filter)) { where.push('a.status = ?'); params.push(filter); }
     // Wallet filters: amounts arrive in major units, compared in cents; currency
     // is an exact ECurrencyCode match (only meaningful together with an amount).
     if (currency) { where.push('a.wallet_currency = ?'); params.push(currency); }
@@ -328,6 +336,17 @@ async function handleIngest(env, b) {
                 p.steam_id, p.account_name ?? null, p.persona ?? null, p.country ?? null, p.email ?? null, p.wallet_currency ?? null, p.wallet_balance_cents ?? null, p.steam_level ?? null, p.steam_points ?? null, p.source ?? null, p.steam_password ?? null, p.email_password ?? null, ts, ts, ts);
             return true;
         }
+        case 'addAccountStub': {
+            const p = b.partial || {};
+            await run('INSERT INTO accounts (steam_id, account_name, email, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(steam_id) DO UPDATE SET account_name = COALESCE(excluded.account_name, accounts.account_name), email = COALESCE(excluded.email, accounts.email), source = COALESCE(excluded.source, accounts.source), updated_at = excluded.updated_at',
+                p.steam_id, p.account_name ?? null, p.email ?? null, p.source ?? null, ts, ts);
+            return true;
+        }
+        case 'dropPendingStub':
+            if (b.accountName) await run("DELETE FROM accounts WHERE steam_id LIKE 'pending:%' AND lower(account_name) = lower(?)", b.accountName);
+            return true;
+        case 'accountNames':
+            return all('SELECT lower(account_name) AS n FROM accounts WHERE account_name IS NOT NULL');
         case 'saveFriends': {
             const friends = b.friends || [];
             if (!friends.length) return true;
@@ -423,7 +442,20 @@ async function handleIngest(env, b) {
     }
 }
 
-async function handleApi(req, env, url) {
+// Push an account's new status to another repo's webhook (best-effort; the pull
+// feed at /api/accounts/feed stays the source of truth if a push is missed).
+async function pushStatusWebhook(env, account) {
+    if (!env.STATUS_WEBHOOK_URL) return;
+    try {
+        await fetch(env.STATUS_WEBHOOK_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...(env.STATUS_WEBHOOK_TOKEN ? { Authorization: `Bearer ${env.STATUS_WEBHOOK_TOKEN}` } : {}) },
+            body: JSON.stringify({ event: 'account.status', account, at: now() }),
+        });
+    } catch (_) { /* swallow — the feed is authoritative */ }
+}
+
+async function handleApi(req, env, url, ctx) {
     const p = url.pathname;
     const method = req.method;
     const body = async () => req.json().catch(() => ({}));
@@ -493,6 +525,31 @@ async function handleApi(req, env, url) {
         const { value } = await body();
         const changes = (await env.DB.prepare('UPDATE accounts SET skip_wallet = ?, updated_at = unixepoch() WHERE steam_id = ?').bind(value ? 1 : 0, m[1]).run()).meta.changes;
         return changes ? json({ steam_id: m[1], skip_wallet: value ? 1 : 0 }) : json({ error: 'account not found' }, 404);
+    }
+
+    // Set an account's business status (available/renting/sold/reserved/disabled)
+    // and push it to the other repo's webhook if one is configured.
+    m = /^\/api\/accounts\/(\d{17})\/status$/.exec(p);
+    if (method === 'POST' && m) {
+        const { status } = await body();
+        if (!STATUSES.includes(status)) return json({ error: `status must be one of: ${STATUSES.join(', ')}` }, 400);
+        const changes = (await env.DB.prepare('UPDATE accounts SET status = ?, status_updated_at = unixepoch(), updated_at = unixepoch() WHERE steam_id = ?').bind(status, m[1]).run()).meta.changes;
+        if (!changes) return json({ error: 'account not found' }, 404);
+        const account = await env.DB.prepare('SELECT steam_id, account_name, persona, country, status, status_updated_at FROM accounts WHERE steam_id = ?').bind(m[1]).first();
+        if (env.STATUS_WEBHOOK_URL && ctx) ctx.waitUntil(pushStatusWebhook(env, account));
+        return json({ steam_id: m[1], status, pushed: !!env.STATUS_WEBHOOK_URL });
+    }
+
+    // Public feed for another repo: accounts + their status (optionally filtered by
+    // ?status=). Readable with the dashboard token or a scoped FEED_TOKEN.
+    if (method === 'GET' && p === '/api/accounts/feed') {
+        const status = url.searchParams.get('status');
+        if (status && !STATUSES.includes(status)) return json({ error: `unknown status '${status}'` }, 400);
+        const rows = await rowsOf(env.DB.prepare(
+            `SELECT steam_id, account_name, persona, country, wallet_currency, wallet_balance_cents, steam_level, status, status_updated_at
+             FROM accounts ${status ? 'WHERE status = ?' : ''} ORDER BY status_updated_at DESC, account_name COLLATE NOCASE`
+        ).bind(...(status ? [status] : [])));
+        return json({ count: rows.length, statuses: STATUSES, accounts: rows });
     }
 
     // Manage credentials: email / email_password / steam_password (accounts) and
@@ -736,7 +793,7 @@ export default {
         const authRes = checkAuth(req, url, env);
         if (authRes) return authRes;
         if (url.pathname.startsWith('/api/')) {
-            try { return maybeSetCookie(req, url, env, await handleApi(req, env, url)); }
+            try { return maybeSetCookie(req, url, env, await handleApi(req, env, url, ctx)); }
             catch (err) { return json({ error: err.message }, 500); }
         }
         return env.ASSETS.fetch(req);

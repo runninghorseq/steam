@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS accounts (
     email_client_id       TEXT,             -- OAuth client_id paired with email_refresh_token.
     email_token_refreshed_at INTEGER,       -- Unix epoch the mailbox OAuth token was last refreshed;
                                             -- the dashboard flags it "due" after ~60 days.
+    status                TEXT NOT NULL DEFAULT 'available', -- business status: available,
+                                            -- renting, sold, reserved, disabled. Published via
+                                            -- the /api/accounts/feed + status webhook.
+    status_updated_at     INTEGER,          -- Unix epoch the status last changed
     scanned_at            INTEGER,          -- Last scan unix epoch (seconds)
     created_at            INTEGER NOT NULL DEFAULT (unixepoch()),
     updated_at            INTEGER NOT NULL DEFAULT (unixepoch())
