@@ -313,7 +313,9 @@ async function handleIngest(env, b) {
     const run = (sql, ...pp) => DB.prepare(sql).bind(...pp).run();
     const all = async (sql, ...pp) => (await DB.prepare(sql).bind(...pp).all()).results;
     const first = (sql, ...pp) => DB.prepare(sql).bind(...pp).first();
-    const batchAll = async (stmts) => { for (let i = 0; i < stmts.length; i += 100) await DB.batch(stmts.slice(i, i + 100)); };
+    // Batch writes in large chunks so a big scan stays well under the Worker's
+    // subrequest cap (each DB.batch is one subrequest; Turso has no param limit).
+    const batchAll = async (stmts) => { for (let i = 0; i < stmts.length; i += 500) await DB.batch(stmts.slice(i, i + 500)); };
 
     switch (b.op) {
         case 'getRefreshToken': {
@@ -400,7 +402,7 @@ async function handleIngest(env, b) {
             const live = new Set(liveGifts.map((g) => g.gift_id));
             const existing = (await all('SELECT gift_id FROM sent_gifts WHERE account_steam_id = ?', b.accountSteamID)).map((r) => r.gift_id);
             const deleted = existing.filter((id) => !live.has(id));
-            for (const id of deleted) await run('DELETE FROM sent_gifts WHERE account_steam_id = ? AND gift_id = ?', b.accountSteamID, id);
+            for (let i = 0; i < deleted.length; i += 500) { const c = deleted.slice(i, i + 500); await run(`DELETE FROM sent_gifts WHERE account_steam_id = ? AND gift_id IN (${c.map(() => '?').join(', ')})`, b.accountSteamID, ...c); }
             for (const g of liveGifts) {
                 await run('INSERT OR REPLACE INTO sent_gifts (gift_id, account_steam_id, recipient_steam_id, recipient_name, item_name, detail, sent_at, status, store_url, scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                     g.gift_id, b.accountSteamID, g.recipient_steam_id ?? null, g.recipient_name ?? null, g.item_name ?? null, g.detail ?? null, ingestGiftedAt(g.sent_at), g.status ?? null, g.store_url ?? null, ts, ts, ts);
@@ -416,7 +418,13 @@ async function handleIngest(env, b) {
             return true;
         }
         case 'removeFriendRows': {
-            for (const id of (b.friendSteamIDs || [])) await run('DELETE FROM friends WHERE account_steam_id = ? AND friend_steam_id = ?', b.accountSteamID, id);
+            // One DELETE per chunk, not per friend — over Turso each query is a
+            // Worker subrequest, and a big prune would blow the subrequest cap.
+            const ids = b.friendSteamIDs || [];
+            for (let i = 0; i < ids.length; i += 500) {
+                const c = ids.slice(i, i + 500);
+                await run(`DELETE FROM friends WHERE account_steam_id = ? AND friend_steam_id IN (${c.map(() => '?').join(', ')})`, b.accountSteamID, ...c);
+            }
             return true;
         }
         case 'accountNameBySteamID': {
@@ -770,6 +778,32 @@ async function handleApi(req, env, url, ctx) {
         const sent = await rowsOf(env.DB.prepare("SELECT DISTINCT recipient_name AS friend_name, item_name AS game FROM sent_gifts WHERE created_at >= ? AND created_at < ? AND (status IS NULL OR status NOT LIKE 'FAILED%') AND recipient_name IS NOT NULL AND trim(recipient_name) <> ''").bind(start, end));
         const gifted = await rowsOf(env.DB.prepare("SELECT DISTINCT friend_name, gifted_game AS game FROM friends WHERE gifted_at >= ? AND gifted_at < ? AND friend_name IS NOT NULL AND trim(friend_name) <> ''").bind(start, end));
         return json({ sent, gifted });
+    }
+
+    // Mark a friend (by 17-digit SteamID64, else by name) as gifted across every
+    // account, setting gifted_at + gifted_game. Replaces mark_gifted.js's direct
+    // DB access so the script needs no database, only this API.
+    if (method === 'POST' && p === '/api/friends/mark-gifted') {
+        const b = await body();
+        const friend = String(b.friend || '').trim();
+        const games = Array.isArray(b.games) ? b.games.filter(Boolean) : (b.game ? [String(b.game)] : []);
+        const ts = Number(b.ts);
+        if (!friend || !games.length || !Number.isFinite(ts)) return json({ error: 'friend, games[] and ts required' }, 400);
+        const canonical = games[0];
+        const bySteam = /^7656119\d{10}$/.test(friend);
+        const rows = await rowsOf(env.DB.prepare(
+            `SELECT account_steam_id, friend_steam_id, friend_name, gifted_at, gifted_game FROM friends WHERE ${bySteam ? 'friend_steam_id = ?' : 'lower(friend_name) = lower(?)'}`).bind(friend));
+        const gameSet = new Set(games);
+        let updated = 0, alreadyMarked = 0;
+        const stmts = [], results = [];
+        for (const r of rows) {
+            if (r.gifted_at === ts && gameSet.has(r.gifted_game)) { alreadyMarked++; results.push({ account_steam_id: r.account_steam_id, friend_name: r.friend_name, gifted_at: r.gifted_at, gifted_game: r.gifted_game, status: 'already-marked' }); continue; }
+            stmts.push(env.DB.prepare('UPDATE friends SET gifted_at = ?, gifted_game = ?, updated_at = unixepoch() WHERE account_steam_id = ? AND friend_steam_id = ?').bind(ts, canonical, r.account_steam_id, r.friend_steam_id));
+            updated++;
+            results.push({ account_steam_id: r.account_steam_id, friend_name: r.friend_name, gifted_at: r.gifted_at, gifted_game: r.gifted_game, status: 'updated', new_gifted_at: ts, new_gifted_game: canonical });
+        }
+        for (let i = 0; i < stmts.length; i += 500) await env.DB.batch(stmts.slice(i, i + 500));
+        return json({ lookup: bySteam ? 'steamid' : 'name', matched: rows.length, updated, alreadyMarked, rows: results, names: [...new Set(rows.map((r) => r.friend_name).filter(Boolean))] });
     }
 
     if (method === 'POST' && p === '/api/friends/country') {

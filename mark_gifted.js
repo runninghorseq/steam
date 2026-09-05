@@ -36,27 +36,41 @@
 
 const fs = require('fs');
 const path = require('path');
-const { db } = require('./db');
 
-// The dashboard API owns the gift records now (steam_profile_login.py writes
-// there). Auto/sync modes read the day's gifted recipients from it instead of
-// the local DB, so this stays consistent with wherever the bot recorded them.
-// Override with STEAM_API_BASE; token via STEAM_API_TOKEN / DASHBOARD_TOKEN.
-// Single-friend mode still uses the LOCAL db (it's a manual override).
-const API_BASE = (process.env.STEAM_API_BASE || 'https://steam.fungamingvn.space').replace(/\/+$/, '');
-// const API_TOKEN = process.env.STEAM_API_TOKEN || process.env.DASHBOARD_TOKEN || '';
-const API_TOKEN = '89d1146bef759c827dfae6ebd840e1d4'
+// The dashboard API (Cloudflare Worker, backed by Turso) owns all gift records.
+// This script accesses NO database — every mode reads gifted recipients and
+// marks friends gifted through the API, so it works from any machine without a
+// local DB and always sees the live data. Point at the Worker (which reads/writes
+// Turso); override with STEAM_API_BASE. Token via STEAM_API_TOKEN / DASHBOARD_TOKEN.
+const API_BASE = (process.env.STEAM_API_BASE || 'https://steam-dashboard.fungamingsteam.workers.dev').replace(/\/+$/, '');
+const API_TOKEN = process.env.STEAM_API_TOKEN || process.env.DASHBOARD_TOKEN || '89d1146bef759c827dfae6ebd840e1d4';
 
-async function fetchGifted(dayStart, dayEnd) {
-    const headers = {
-        // Cloudflare fronts the domain and blocks non-browser signatures.
+// Shared headers — Cloudflare fronts the domain and blocks non-browser signatures.
+function apiHeaders(extra = {}) {
+    const h = {
         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-        'Accept': 'application/json',
+        Accept: 'application/json',
+        ...extra,
     };
-    if (API_TOKEN) headers['X-Dashboard-Token'] = API_TOKEN;
+    if (API_TOKEN) h['X-Dashboard-Token'] = API_TOKEN;
+    return h;
+}
+async function apiPost(pathname, payload) {
     let resp;
     try {
-        resp = await fetch(`${API_BASE}/api/gifted?start=${dayStart}&end=${dayEnd}`, { headers });
+        resp = await fetch(`${API_BASE}${pathname}`, { method: 'POST', headers: apiHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(payload) });
+    } catch (e) {
+        throw new Error(`API unreachable at ${API_BASE} (${e.message})`);
+    }
+    if (resp.status === 401) throw new Error('API 401 unauthorized — set STEAM_API_TOKEN to match the server DASHBOARD_TOKEN');
+    if (!resp.ok) throw new Error(`API ${pathname} -> HTTP ${resp.status}`);
+    return resp.json();
+}
+
+async function fetchGifted(dayStart, dayEnd) {
+    let resp;
+    try {
+        resp = await fetch(`${API_BASE}/api/gifted?start=${dayStart}&end=${dayEnd}`, { headers: apiHeaders() });
     } catch (e) {
         throw new Error(`API unreachable at ${API_BASE} (${e.message})`);
     }
@@ -96,6 +110,8 @@ const DEFAULT_FILE = [
     '20260504_steam_4k_outlook.txt',
     '20260504_PTGO1774415483.txtresult.txt',
     '20251201_accsteam_PXFC2BCSMK_80_leori.txt',
+    '20260317_DUCJ1774087767_190.txt.txt',
+
 ].map((name) => path.join(GIFT_DIR, name));
 const DEFAULT_TAG = 'poe2ea';
 
@@ -191,36 +207,11 @@ function localDayRange(ts) {
     return [Math.floor(start / 1000), Math.floor(end / 1000)];
 }
 
-const findByName = db.prepare(`
-SELECT account_steam_id, friend_steam_id, friend_name, gifted_at, gifted_game
-FROM friends WHERE lower(friend_name) = lower(?)
-`);
-const findBySteamID = db.prepare(`
-SELECT account_steam_id, friend_steam_id, friend_name, gifted_at, gifted_game
-FROM friends WHERE friend_steam_id = ?
-`);
-const updateGift = db.prepare(`
-UPDATE friends
-SET gifted_at = ?, gifted_game = ?, updated_at = unixepoch()
-WHERE account_steam_id = ? AND friend_steam_id = ?
-`);
-function updateDB({ friend, tag, ts }) {
-    const bySteamID = STEAMID64_RE.test(String(friend));
-    const rows = bySteamID ? findBySteamID.all(String(friend)) : findByName.all(friend);
-    const canonical = canonicalGameForTag(tag);
-    const aliases = new Set(gameNamesForTag(tag));
-    let updated = 0;
-    let alreadyMarked = 0;
-    const results = rows.map((r) => {
-        if (r.gifted_at === ts && aliases.has(r.gifted_game)) {
-            alreadyMarked++;
-            return { ...r, status: 'already-marked' };
-        }
-        updateGift.run(ts, canonical, r.account_steam_id, r.friend_steam_id);
-        updated++;
-        return { ...r, status: 'updated', new_gifted_at: ts, new_gifted_game: canonical };
-    });
-    return { lookup: bySteamID ? 'steamid' : 'name', matched: rows.length, updated, alreadyMarked, rows: results, names: [...new Set(rows.map((r) => r.friend_name).filter(Boolean))] };
+// Mark a friend gifted via the API (no local DB). The server finds the matching
+// friends (by SteamID64 or name), sets gifted_at + gifted_game, and returns the
+// same shape the old direct-DB version did.
+async function updateDB({ friend, tag, ts }) {
+    return apiPost('/api/friends/mark-gifted', { friend: String(friend), games: gameNamesForTag(tag), ts });
 }
 
 function emailPrefixFromLine(line) {
@@ -273,10 +264,11 @@ function updateFile({ file, keys, tag, stamp }) {
         const prefix = emailPrefixFromLine(line);
         if (!prefix || !needles.has(prefix.toLowerCase())) return p;
         const tokens = line.split('|').map((t) => t.trim());
-        // Already-marked if a token IS the marker, or STARTS WITH it followed by
-        // a suffix annotation (e.g. the gifting bot appends " -> fb"). An exact
-        // match alone would miss those and append a duplicate marker.
-        if (tokens.some((t) => t === marker || t.startsWith(`${marker} `))) {
+        // Already-marked if the line carries ANY marker for this tag — the tag
+        // alone, or the tag followed by a date/suffix ("poe2ea 20260726", or the
+        // bot's "poe2ea 20260726 -> fb"). Deliberately date-agnostic: re-running on
+        // a later day must NOT append a second marker for a friend already tagged.
+        if (tokens.some((t) => t === tag || t.startsWith(`${tag} `))) {
             matches.push({ line: idx + 1, status: 'already-marked', prefix });
             return p;
         }
@@ -293,7 +285,7 @@ function updateFile({ file, keys, tag, stamp }) {
     return { fileExists: true, updated, alreadyMarked, matches };
 }
 
-function markGifted({ friend, tag = DEFAULT_TAG, date, file } = {}) {
+async function markGifted({ friend, tag = DEFAULT_TAG, date, file } = {}) {
     if (!friend) throw new Error('friend is required');
     if (isSentGiftsTag(tag)) {
         // This gift lives in sent_gifts, not friends.gifted_game. Writing it via
@@ -303,7 +295,7 @@ function markGifted({ friend, tag = DEFAULT_TAG, date, file } = {}) {
     }
     const ts = date ? parseDate(date) : nowEpoch();
     const stamp = fmtDate(ts);
-    const dbRes = updateDB({ friend, tag, ts });
+    const dbRes = await updateDB({ friend, tag, ts });
 
     const keys = new Set(dbRes.names);
     if (dbRes.lookup === 'name') keys.add(String(friend));
@@ -470,7 +462,7 @@ async function runCli() {
             return;
         }
 
-        const res = markGifted({ friend: friendPos, tag, date, file: args.file });
+        const res = await markGifted({ friend: friendPos, tag, date, file: args.file });
         console.log(`friend='${friendPos}' (${res.db.lookup}) tag='${tag}' date=${res.stamp}`);
         console.log(`  DB:   matched=${res.db.matched} updated=${res.db.updated} already-marked=${res.db.alreadyMarked}`);
         res.db.rows.forEach((r) => {

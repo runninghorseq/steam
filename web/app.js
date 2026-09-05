@@ -4,7 +4,7 @@ const state = {
     view: 'accounts',
     q: '',
     filter: '',
-    wallet: { currency: '', min: '', max: '' },
+    wallet: { currency: 'USD', min: '', max: '' },
     sort: 'wallet',
     dir: 'desc',
     rows: [],
