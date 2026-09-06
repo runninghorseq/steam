@@ -1,0 +1,26 @@
+meta {
+  name: Submit Guard Code
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/accounts/login/0000000000000000/guard
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "code": "ABCDE"
+  }
+}
+
+docs {
+  Supply the Steam Guard code to a session waiting on need_guard.
+}

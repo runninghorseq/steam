@@ -1,0 +1,19 @@
+meta {
+  name: Gifted (range)
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/gifted?start=1788000000&end=1788086400
+  body: none
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+}
+
+docs {
+  Recipients gifted in a unix-epoch range (sent + friends.gifted). Used by mark_gifted.js.
+}

@@ -1,0 +1,28 @@
+meta {
+  name: Sync Sent Gifts
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/gifts/sync
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "account_name": "",
+    "concurrency": 3,
+    "timeout": 120000
+  }
+}
+
+docs {
+  Re-check sent gifts on Steam (box job). Omit account_name to sweep all tokened accounts with sent gifts.
+}

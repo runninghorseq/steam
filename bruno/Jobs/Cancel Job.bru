@@ -1,0 +1,19 @@
+meta {
+  name: Cancel Job
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/jobs/000000000000/cancel
+  body: none
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+}
+
+docs {
+  Stop a running job (cooperative) or cancel a queued one.
+}

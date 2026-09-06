@@ -1,0 +1,19 @@
+meta {
+  name: Account Detail
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/accounts/76561199000000000
+  body: none
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+}
+
+docs {
+  Full detail incl. managed credentials. Accepts a 17-digit SteamID64 or pending:<username>.
+}

@@ -1,0 +1,33 @@
+meta {
+  name: Update Country
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/friends/country
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "updates": [
+      {
+        "matchBy": "name",
+        "key": "somefriend",
+        "country": "US"
+      }
+    ],
+    "commit": false
+  }
+}
+
+docs {
+  Dry-run by default; set commit:true to write. matchBy: name|steamid.
+}

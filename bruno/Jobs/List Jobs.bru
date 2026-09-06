@@ -1,0 +1,19 @@
+meta {
+  name: List Jobs
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/jobs
+  body: none
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+}
+
+docs {
+  Recent background jobs (from the DB).
+}

@@ -1,0 +1,31 @@
+meta {
+  name: Remove Friends
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/api/accounts/76561199000000000/remove-friends
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "mode": "name",
+    "names": [
+      "friend1",
+      "friend2"
+    ],
+    "dryRun": true
+  }
+}
+
+docs {
+  Remove friends by name list (mode:name) or friend_since date range (mode:date). Proxied to the box.
+}

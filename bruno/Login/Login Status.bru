@@ -1,0 +1,19 @@
+meta {
+  name: Login Status
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/accounts/login/0000000000000000
+  body: none
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+}
+
+docs {
+  Poll a login session (id = 16 hex). status: pending|need_guard|logging_in|done|error.
+}

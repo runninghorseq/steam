@@ -1,0 +1,27 @@
+meta {
+  name: Start Login (by name)
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/accounts/login/start
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "account_name": "someaccount",
+    "password": "the-steam-password"
+  }
+}
+
+docs {
+  Start login by login name (no steamid needed).
+}

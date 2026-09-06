@@ -1,0 +1,26 @@
+meta {
+  name: Toggle Skip Wallet
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/accounts/76561199000000000/skip-wallet
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "value": 1
+  }
+}
+
+docs {
+  value 1 = skip wallet updates, 0 = track.
+}

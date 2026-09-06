@@ -1,0 +1,19 @@
+meta {
+  name: Pending Gifts
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/gifts/pending
+  body: none
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+}
+
+docs {
+  Pending received gifts.
+}

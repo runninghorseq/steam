@@ -1,0 +1,31 @@
+meta {
+  name: Scan / Upload
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/scan
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "text": "user:pass",
+    "idOnly": true,
+    "addOnly": false,
+    "rescan": false,
+    "source": "",
+    "timeout": 60000
+  }
+}
+
+docs {
+  Upload accounts. idOnly=SteamID-only login (default), addOnly=store without login, else full scan. Proxied to the box.
+}

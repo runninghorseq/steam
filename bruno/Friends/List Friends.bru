@@ -1,0 +1,19 @@
+meta {
+  name: List Friends
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/friends?q=
+  body: none
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+}
+
+docs {
+  Search friends by name / steamid / owning account.
+}

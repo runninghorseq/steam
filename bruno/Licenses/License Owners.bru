@@ -1,0 +1,19 @@
+meta {
+  name: License Owners
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/licenses/owners?package_id=
+  body: none
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+}
+
+docs {
+  Accounts owning a package.
+}

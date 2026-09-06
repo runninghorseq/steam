@@ -1,0 +1,28 @@
+meta {
+  name: Run Action
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/accounts/76561199000000000/run
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "action": "wallet",
+    "mode": "all",
+    "timeout": 60000
+  }
+}
+
+docs {
+  Run one Steam-login action on the account. action: scan|wallet|sync|friends|playtime. Proxied to the box.
+}

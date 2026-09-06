@@ -1,0 +1,19 @@
+meta {
+  name: List Accounts
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/accounts?q=&filter=&sort=wallet&dir=desc&page=1&per=50
+  body: none
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+}
+
+docs {
+  Paginated accounts. filter: funded|skip_wallet|tracked|loaned|no_token|renting|sold|reserved. Without page= it returns a plain array.
+}

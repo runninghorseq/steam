@@ -1,0 +1,30 @@
+meta {
+  name: Mark Gifted
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/friends/mark-gifted
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "friend": "somefriend",
+    "games": [
+      "Path of Exile 2 - Early Access Supporter Pack"
+    ],
+    "ts": 1788000000
+  }
+}
+
+docs {
+  Mark a friend gifted across all accounts (by name or 17-digit SteamID64).
+}

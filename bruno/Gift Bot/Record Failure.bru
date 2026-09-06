@@ -1,0 +1,30 @@
+meta {
+  name: Record Failure
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/gift/record-failure
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "account": "someaccount",
+    "friend_name": "somefriend",
+    "reason": "some reason",
+    "usesSentGifts": false,
+    "item_name": null
+  }
+}
+
+docs {
+  Record a failed gift attempt.
+}

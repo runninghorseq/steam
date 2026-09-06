@@ -1,0 +1,29 @@
+meta {
+  name: Delete Sent Gifts
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/gifts/sent/delete
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "gift_ids": [
+      "gift1",
+      "gift2"
+    ]
+  }
+}
+
+docs {
+  Delete sent-gift rows by gift_id.
+}

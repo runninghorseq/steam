@@ -1,0 +1,19 @@
+meta {
+  name: Delete Account
+  type: http
+  seq: 10
+}
+
+delete {
+  url: {{baseUrl}}/api/accounts/76561199000000000
+  body: none
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+}
+
+docs {
+  Delete the account + owned rows (box only; 501 on the Worker).
+}

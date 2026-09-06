@@ -1,0 +1,32 @@
+meta {
+  name: Record Success
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/gift/record-success
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "account": "someaccount",
+    "friend_name": "somefriend",
+    "usesSentGifts": false,
+    "gameName": "Path of Exile 2",
+    "item_name": null,
+    "friend_steam_id": null,
+    "subid": null
+  }
+}
+
+docs {
+  Record a successful gift.
+}

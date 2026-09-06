@@ -851,13 +851,26 @@ async function handleAPI(req, res, url) {
 
     // Public feed for another repo: accounts + status (optionally ?status=filter).
     if (method === 'GET' && p === '/api/accounts/feed') {
-        const status = url.searchParams.get('status');
-        if (status && !STATUSES.includes(status)) return sendJSON(res, 400, { error: `unknown status '${status}'` });
+        const statuses = (url.searchParams.get('status') || '').split(',').map((s) => s.trim()).filter(Boolean);
+        const bad = statuses.filter((s) => !STATUSES.includes(s));
+        if (bad.length) return sendJSON(res, 400, { error: `unknown status: ${bad.join(', ')}` });
+        // For a delivered account include the credentials (steam/email password,
+        // mailbox = "passmail", 2FA secret) + its sent gifts. Auto-on when 'sold' is
+        // requested; ?credentials=1/0 to force. Token-gated like the whole feed.
+        const cparam = url.searchParams.get('credentials');
+        const withCreds = cparam === '1' || (statuses.includes('sold') && cparam !== '0');
+        const cols = withCreds
+            ? 'steam_id, account_name, steam_password, email, email_password, shared_secret, persona, country, wallet_currency, wallet_balance_cents, steam_level, status, status_updated_at'
+            : 'steam_id, account_name, persona, country, wallet_currency, wallet_balance_cents, steam_level, status, status_updated_at';
+        const where = statuses.length ? `WHERE status IN (${statuses.map(() => '?').join(', ')})` : '';
         const rows = db.prepare(
-            `SELECT steam_id, account_name, persona, country, wallet_currency, wallet_balance_cents, steam_level, status, status_updated_at
-             FROM accounts ${status ? 'WHERE status = ?' : ''} ORDER BY status_updated_at DESC, account_name COLLATE NOCASE`
-        ).all(...(status ? [status] : []));
-        return sendJSON(res, 200, { count: rows.length, statuses: STATUSES, accounts: rows });
+            `SELECT ${cols} FROM accounts ${where} ORDER BY status_updated_at DESC, account_name COLLATE NOCASE`
+        ).all(...statuses);
+        if (withCreds && rows.length) {
+            const giftStmt = db.prepare('SELECT recipient_name, recipient_steam_id, item_name, sent_at, status FROM sent_gifts WHERE account_steam_id = ? ORDER BY sent_at');
+            for (const r of rows) r.sent_gifts = giftStmt.all(r.steam_id);
+        }
+        return sendJSON(res, 200, { count: rows.length, statuses: STATUSES, credentials: withCreds, accounts: rows });
     }
 
     // Manage credentials: email / email_password / steam_password + refresh token.

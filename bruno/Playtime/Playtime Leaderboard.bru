@@ -1,0 +1,19 @@
+meta {
+  name: Playtime Leaderboard
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/playtime?q=
+  body: none
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+}
+
+docs {
+  Accounts by total playtime; q matches account or game name.
+}

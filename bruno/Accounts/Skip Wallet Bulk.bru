@@ -1,0 +1,28 @@
+meta {
+  name: Skip Wallet Bulk
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/api/accounts/skip-wallet-bulk
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "where": "wallet_balance_cents = 0",
+    "params": [],
+    "target": 1
+  }
+}
+
+docs {
+  Bulk set skip_wallet from a client-built WHERE (used by wallet_skip.js). target 1=skip, 0=track.
+}

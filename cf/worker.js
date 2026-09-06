@@ -70,9 +70,10 @@ function checkAuth(req, url, env) {
     const cookie = parseCookies(req).dash_token;
     const header = req.headers.get('x-dashboard-token') || (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
     if (tokenMatches(cookie, TOKEN) || tokenMatches(header, TOKEN)) return null;
-    // The status feed can also be read with a scoped FEED_TOKEN (given to the
-    // other repo) instead of the full dashboard token.
-    if (url.pathname === '/api/accounts/feed' && env.FEED_TOKEN && (tokenMatches(q, env.FEED_TOKEN) || tokenMatches(header, env.FEED_TOKEN))) return null;
+    // The scoped FEED_TOKEN (given to the other repo) can READ the feed and UPDATE
+    // an account's status (e.g. mark sold after delivery) — nothing else.
+    if (env.FEED_TOKEN && (tokenMatches(q, env.FEED_TOKEN) || tokenMatches(header, env.FEED_TOKEN))
+        && (url.pathname === '/api/accounts/feed' || /^\/api\/accounts\/\d{17}\/status$/.test(url.pathname))) return null;
     if (url.pathname.startsWith('/api/')) return json({ error: 'unauthorized' }, 401);
     return new Response(
         '<!doctype html><meta charset=utf-8><body style="font:15px system-ui;max-width:34rem;margin:12vh auto;padding:0 1rem;color:#333"><h2>Authorization required</h2><p>Open this dashboard with <code>?token=YOUR_TOKEN</code> appended once. It is then remembered in a cookie.</p></body>',
@@ -579,13 +580,35 @@ async function handleApi(req, env, url, ctx) {
     // Public feed for another repo: accounts + their status (optionally filtered by
     // ?status=). Readable with the dashboard token or a scoped FEED_TOKEN.
     if (method === 'GET' && p === '/api/accounts/feed') {
-        const status = url.searchParams.get('status');
-        if (status && !STATUSES.includes(status)) return json({ error: `unknown status '${status}'` }, 400);
+        // One or more statuses, comma-separated: ?status=available,sold
+        const statuses = (url.searchParams.get('status') || '').split(',').map((s) => s.trim()).filter(Boolean);
+        const bad = statuses.filter((s) => !STATUSES.includes(s));
+        if (bad.length) return json({ error: `unknown status: ${bad.join(', ')}` }, 400);
+        // Delivering an account (sold, or available being handed to a buyer): include
+        // the login + mailbox credentials (steam/email password, mailbox = "passmail",
+        // 2FA secret) and its sent gifts. Auto-on when 'sold' is requested; force with
+        // ?credentials=1, suppress with 0. Token-gated (FEED_TOKEN / DASHBOARD_TOKEN).
+        const cparam = url.searchParams.get('credentials');
+        const withCreds = cparam === '1' || (statuses.includes('sold') && cparam !== '0');
+        const cols = withCreds
+            ? 'steam_id, account_name, steam_password, email, email_password, shared_secret, persona, country, wallet_currency, wallet_balance_cents, steam_level, status, status_updated_at'
+            : 'steam_id, account_name, persona, country, wallet_currency, wallet_balance_cents, steam_level, status, status_updated_at';
+        const where = statuses.length ? `WHERE status IN (${statuses.map(() => '?').join(', ')})` : '';
         const rows = await rowsOf(env.DB.prepare(
-            `SELECT steam_id, account_name, persona, country, wallet_currency, wallet_balance_cents, steam_level, status, status_updated_at
-             FROM accounts ${status ? 'WHERE status = ?' : ''} ORDER BY status_updated_at DESC, account_name COLLATE NOCASE`
-        ).bind(...(status ? [status] : [])));
-        return json({ count: rows.length, statuses: STATUSES, accounts: rows });
+            `SELECT ${cols} FROM accounts ${where} ORDER BY status_updated_at DESC, account_name COLLATE NOCASE`
+        ).bind(...statuses));
+        if (withCreds && rows.length) {
+            // One query for all sent gifts, grouped in JS — avoids a per-account
+            // subrequest (Worker subrequest cap). Turso has no bound-param limit.
+            const ids = rows.map((r) => r.steam_id);
+            const gifts = await rowsOf(env.DB.prepare(
+                `SELECT account_steam_id, recipient_name, recipient_steam_id, item_name, sent_at, status FROM sent_gifts WHERE account_steam_id IN (${ids.map(() => '?').join(', ')}) ORDER BY sent_at`
+            ).bind(...ids));
+            const byAcct = new Map();
+            for (const g of gifts) { if (!byAcct.has(g.account_steam_id)) byAcct.set(g.account_steam_id, []); byAcct.get(g.account_steam_id).push(g); }
+            for (const r of rows) r.sent_gifts = byAcct.get(r.steam_id) || [];
+        }
+        return json({ count: rows.length, statuses: STATUSES, credentials: withCreds, accounts: rows });
     }
 
     // Manage credentials: email / email_password / steam_password (accounts) and

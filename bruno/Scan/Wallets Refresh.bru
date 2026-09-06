@@ -1,0 +1,29 @@
+meta {
+  name: Wallets Refresh
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/wallets/refresh
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "mode": "all",
+    "includeSkipped": false,
+    "includeLent": false,
+    "concurrency": 5
+  }
+}
+
+docs {
+  Bulk wallet/level refresh across tokened accounts (excludes skip_wallet + loaned). Proxied to the box.
+}

@@ -1,0 +1,32 @@
+meta {
+  name: Candidates
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/gift/candidates
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "account": "someaccount",
+    "limit": 10,
+    "usesSentGifts": false,
+    "gameName": null,
+    "game": {},
+    "excludeNames": [],
+    "priorityNames": []
+  }
+}
+
+docs {
+  Pick gift-candidate friends for an account (used by steam_profile_login.py).
+}

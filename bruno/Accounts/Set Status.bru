@@ -1,0 +1,26 @@
+meta {
+  name: Set Status
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/accounts/76561199000000000/status
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "status": "renting"
+  }
+}
+
+docs {
+  Business status: available|renting|sold|reserved|disabled.
+}

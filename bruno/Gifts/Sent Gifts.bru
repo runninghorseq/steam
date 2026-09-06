@@ -1,0 +1,19 @@
+meta {
+  name: Sent Gifts
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/gifts/sent
+  body: none
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+}
+
+docs {
+  All sent-gift rows (+ recipient->account mapping).
+}

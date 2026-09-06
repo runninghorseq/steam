@@ -1,0 +1,19 @@
+meta {
+  name: Accounts Feed
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/api/accounts/feed?status=
+  body: none
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+}
+
+docs {
+  Public status feed for another repo. Optional ?status= filter. Readable with the FEED_TOKEN.
+}

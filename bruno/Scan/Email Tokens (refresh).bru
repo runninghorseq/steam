@@ -1,0 +1,27 @@
+meta {
+  name: Email Tokens (refresh)
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/email-tokens/refresh
+  body: json
+  auth: none
+}
+
+headers {
+  X-Dashboard-Token: {{token}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "dueDays": 60,
+    "dryRun": true
+  }
+}
+
+docs {
+  Rotate mailbox OAuth tokens via Microsoft (box job). dryRun previews.
+}
