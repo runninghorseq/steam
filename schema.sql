@@ -51,6 +51,8 @@ CREATE TABLE IF NOT EXISTS accounts (
     email_client_id       TEXT,             -- OAuth client_id paired with email_refresh_token.
     email_token_refreshed_at INTEGER,       -- Unix epoch the mailbox OAuth token was last refreshed;
                                             -- the dashboard flags it "due" after ~60 days.
+    shared_secret         TEXT,             -- Steam Guard mobile-authenticator shared_secret (base64);
+                                            -- generate the 2FA code with steam-totp at login time.
     status                TEXT NOT NULL DEFAULT 'available', -- business status: available,
                                             -- renting, sold, reserved, disabled. Published via
                                             -- the /api/accounts/feed + status webhook.

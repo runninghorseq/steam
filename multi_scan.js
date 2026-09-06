@@ -1,20 +1,29 @@
 const fs = require('fs');
 const { scanAccount } = require('./single');
 
+// Steam mobile-authenticator shared_secret: 20 random bytes, base64 -> 28 chars
+// ending in '='. Guard accounts are sold with it appended to the line; grab it
+// from whichever field matches so 2FA codes can be generated later.
+const SHARED_SECRET_RE = /^[A-Za-z0-9+/]{27}=$/;
+function extractSharedSecret(line) {
+    return (line || '').split(/----|[|:]/).map((f) => f.trim()).find((f) => SHARED_SECRET_RE.test(f)) || null;
+}
+
 function parseSteamAccounts(filePath) {
     const data = fs.readFileSync(filePath, 'utf8');
     const lines = data.split('\n').filter(l => l.trim());
     return lines.map((line, index) => {
+        const shared_secret = extractSharedSecret(line);
         if (line.includes('|')) {
             const parts = line.split('|');
-            return { id: index + 1, username: parts[3], password: parts[4], rawLine: line };
+            return { id: index + 1, username: parts[3], password: parts[4], shared_secret, rawLine: line };
         }
         if (line.includes(':')) {
             const parts = line.split(':');
-            return { id: index + 1, username: parts[0], password: parts[1], rawLine: line };
+            return { id: index + 1, username: parts[0], password: parts[1], shared_secret, rawLine: line };
         }
         const parts = line.split('----');
-        return { id: index + 1, username: parts[0], password: parts[1], rawLine: line };
+        return { id: index + 1, username: parts[0], password: parts[1], shared_secret, rawLine: line };
     });
 }
 

@@ -345,8 +345,8 @@ async function handleIngest(env, b) {
         }
         case 'addAccountStub': {
             const p = b.partial || {};
-            await run('INSERT INTO accounts (steam_id, account_name, email, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(steam_id) DO UPDATE SET account_name = COALESCE(excluded.account_name, accounts.account_name), email = COALESCE(excluded.email, accounts.email), source = COALESCE(excluded.source, accounts.source), updated_at = excluded.updated_at',
-                p.steam_id, p.account_name ?? null, p.email ?? null, p.source ?? null, ts, ts);
+            await run('INSERT INTO accounts (steam_id, account_name, email, source, shared_secret, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(steam_id) DO UPDATE SET account_name = COALESCE(excluded.account_name, accounts.account_name), email = COALESCE(excluded.email, accounts.email), source = COALESCE(excluded.source, accounts.source), shared_secret = COALESCE(excluded.shared_secret, accounts.shared_secret), updated_at = excluded.updated_at',
+                p.steam_id, p.account_name ?? null, p.email ?? null, p.source ?? null, p.shared_secret ?? null, ts, ts);
             return true;
         }
         case 'dropPendingStub':

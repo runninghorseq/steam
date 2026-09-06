@@ -869,14 +869,52 @@ async function openDetail(steamID) {
         ].map(([k, v]) => el('div', {}, el('span', {}, k), el('b', {}, v ?? '—')))
     );
 
-    // Pending stub (added without a SteamID): show meta only. The per-account
-    // actions (scan / wallet / status / credentials) key on a real SteamID64, so
-    // resolve it first with a "SteamID only" scan on the Upload / Scan tab.
+    // Pending stub (added without a SteamID): the per-account actions key on a real
+    // SteamID64, so first resolve it with an interactive login by name — enter the
+    // password (and a Steam Guard code if prompted). On success the server saves the
+    // real SteamID + token and drops the placeholder, and we reopen on the real id.
     if (String(a.steam_id).startsWith('pending:')) {
         const banner = el('div', { className: 'empty', style: 'border:1px dashed var(--border); border-radius:8px; padding:12px; margin-bottom:14px; text-align:left' },
             el('b', {}, 'No SteamID yet. '),
-            `This account was added without one. Resolve it with a "SteamID only" scan on the Upload / Scan tab (login name: ${a.account_name || '—'}), then reopen for full details, per-account actions, and scan data.`);
-        body.replaceChildren(banner, kv);
+            `Added without one. Log in below to resolve and store its SteamID — enter the password, and a Steam Guard code if prompted. (Or run a "SteamID only" scan on the Upload / Scan tab.)`);
+
+        if (!a.account_name) { body.replaceChildren(banner, kv); return; }
+
+        const pw = el('input', { type: 'password', placeholder: 'account password', autocomplete: 'new-password', style: 'min-width:190px' });
+        const goBtn = el('button', { className: 'act primary' }, 'Log in & resolve SteamID');
+        const guardInput = el('input', { type: 'text', placeholder: 'Steam Guard code', autocomplete: 'off', style: 'width:150px; display:none' });
+        const guardBtn = el('button', { className: 'act', style: 'display:none' }, 'Submit code');
+        const st = el('span', { className: 'dim', style: 'font-size:12px' }, '');
+        let sid = null;
+        const showGuard = (on) => { guardInput.style.display = on ? '' : 'none'; guardBtn.style.display = on ? '' : 'none'; };
+        const poll = async (s) => {
+            let r;
+            try { r = await api(`/api/accounts/login/${s}`); }
+            catch (e) { stopLoginPoll(); st.textContent = e.message; goBtn.disabled = false; return; }
+            if (r.status === 'need_guard') { st.textContent = `Steam Guard required (${r.guard_type}) — enter the code`; showGuard(true); guardInput.focus(); }
+            else if (r.status === 'done') { stopLoginPoll(); showGuard(false); st.textContent = 'resolved ✓'; toast(`${a.account_name}: SteamID resolved`); if (state.view === 'accounts') load(); openDetail(r.resolved_steam_id || a.steam_id); }
+            else if (r.status === 'error') { stopLoginPoll(); showGuard(false); st.textContent = `failed: ${r.reason || 'unknown'}`; goBtn.disabled = false; }
+            else st.textContent = r.status === 'logging_in' ? 'logging in…' : 'starting…';
+        };
+        goBtn.onclick = async () => {
+            if (!pw.value) { toast('Enter the password first', true); return; }
+            goBtn.disabled = true; showGuard(false); st.textContent = 'starting…';
+            try {
+                const r = await api('/api/accounts/login/start', { method: 'POST', body: JSON.stringify({ account_name: a.account_name, password: pw.value }) });
+                pw.value = ''; sid = r.session_id; stopLoginPoll();
+                loginPoll = setInterval(() => poll(sid), 1500); poll(sid);
+            } catch (e) { st.textContent = ''; toast(e.message, true); goBtn.disabled = false; }
+        };
+        guardBtn.onclick = async () => {
+            if (!guardInput.value || !sid) return;
+            guardBtn.disabled = true;
+            try { await api(`/api/accounts/login/${sid}/guard`, { method: 'POST', body: JSON.stringify({ code: guardInput.value }) }); guardInput.value = ''; showGuard(false); st.textContent = 'submitting code…'; }
+            catch (e) { toast(e.message, true); }
+            guardBtn.disabled = false;
+        };
+        const loginBar = el('div', { className: 'toolbar', style: 'margin-bottom:14px; flex-wrap:wrap' },
+            el('span', { className: 'dim', style: 'font-size:12px' }, `Resolve (${a.account_name}):`), pw, goBtn, guardInput, guardBtn, st);
+        body.replaceChildren(banner, loginBar, kv);
         return;
     }
 

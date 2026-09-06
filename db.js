@@ -52,6 +52,9 @@ if (!accountCols.includes('status')) {
 if (!accountCols.includes('status_updated_at')) {
     db.exec('ALTER TABLE accounts ADD COLUMN status_updated_at INTEGER');
 }
+if (!accountCols.includes('shared_secret')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN shared_secret TEXT');
+}
 
 const upsertAccount = db.prepare(`
 INSERT INTO accounts (steam_id, account_name, persona, country, email, wallet_currency, wallet_balance_cents, steam_level, steam_points, source, steam_password, email_password, scanned_at, created_at, updated_at)
@@ -264,21 +267,23 @@ function updateCredentials(steamID, fields) {
 // scanned_at — the row is a stub until a real scan fills wallet/level/etc. All
 // fields COALESCE, so importing an already-known account never erases scan data.
 const upsertAccountStub = db.prepare(`
-INSERT INTO accounts (steam_id, account_name, email, source, created_at, updated_at)
-VALUES (@steam_id, @account_name, @email, @source, @now, @now)
+INSERT INTO accounts (steam_id, account_name, email, source, shared_secret, created_at, updated_at)
+VALUES (@steam_id, @account_name, @email, @source, @shared_secret, @now, @now)
 ON CONFLICT(steam_id) DO UPDATE SET
     account_name = COALESCE(excluded.account_name, accounts.account_name),
     email = COALESCE(excluded.email, accounts.email),
     source = COALESCE(excluded.source, accounts.source),
+    shared_secret = COALESCE(excluded.shared_secret, accounts.shared_secret),
     updated_at = excluded.updated_at
 `);
-function addAccountStub({ steam_id, account_name, email, source }) {
+function addAccountStub({ steam_id, account_name, email, source, shared_secret }) {
     const ts = now();
     return upsertAccountStub.run({
         steam_id,
         account_name: account_name ?? null,
         email: email ?? null,
         source: source ?? null,
+        shared_secret: shared_secret ?? null,
         now: ts
     }).changes;
 }

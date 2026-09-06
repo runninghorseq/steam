@@ -110,6 +110,19 @@ function startLogin(steamID, accountName, password) {
     });
     client.on('loggedOn', () => {
         if (sess.status === 'pending' || sess.status === 'need_guard') sess.status = 'logging_in';
+        // Capture the real SteamID. For an account added without one (a pending
+        // stub) or with no id, save the account now + drop the placeholder — so an
+        // interactive login also resolves and stores the SteamID.
+        try {
+            const realID = client.steamID && client.steamID.getSteamID64();
+            if (realID) {
+                sess.resolved_steam_id = realID;
+                if (!steamID || String(steamID).startsWith('pending:')) {
+                    store.saveAccount({ steam_id: realID, account_name: accountName, steam_password: password ?? null }).catch((e) => console.error('[login] saveAccount', e.message));
+                    store.dropPendingStub(accountName).catch(() => {});
+                }
+            }
+        } catch (_) {}
     });
     client.on('error', (err) => {
         clearTimeout(timer);
@@ -744,12 +757,24 @@ async function handleAPI(req, res, url) {
         return sendJSON(res, 202, { session_id: sess.sid, status: sess.status, account_name: acc.account_name });
     }
 
+    // Start an interactive login BY NAME — for an account with no SteamID / no
+    // token (e.g. a pending stub added without a SteamID). Same session flow as
+    // /:id/login; on success startLogin saves the resolved SteamID + token.
+    if (method === 'POST' && p === '/api/accounts/login/start') {
+        const b = await readBody(req);
+        const accountName = String(b.account_name || '').trim();
+        if (!accountName) return sendJSON(res, 400, { error: 'account_name required' });
+        if (!b.password) return sendJSON(res, 400, { error: 'password required' });
+        const sess = startLogin(null, accountName, String(b.password));
+        return sendJSON(res, 202, { session_id: sess.sid, status: sess.status, account_name: accountName });
+    }
+
     // Poll a login session's status.
     m = /^\/api\/accounts\/login\/([0-9a-f]{16})$/.exec(p);
     if (method === 'GET' && m) {
         const sess = loginSessions.get(m[1]);
         if (!sess) return sendJSON(res, 404, { error: 'no such login session (it may have expired)' });
-        return sendJSON(res, 200, { status: sess.status, guard_type: sess.guard_type, reason: sess.reason, account_name: sess.account_name });
+        return sendJSON(res, 200, { status: sess.status, guard_type: sess.guard_type, reason: sess.reason, account_name: sess.account_name, resolved_steam_id: sess.resolved_steam_id || null });
     }
 
     // Supply a Steam Guard code to a waiting login session.
@@ -1034,10 +1059,10 @@ async function handleAPI(req, res, url) {
                     .map((f) => f.trim())
                     .find((f) => /^[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}$/.test(f)) || null;
                 if (idm) {
-                    await store.addAccountStub({ steam_id: idm[1], account_name: a.username, email, source: a.source });
+                    await store.addAccountStub({ steam_id: idm[1], account_name: a.username, email, source: a.source, shared_secret: a.shared_secret });
                     added.push(a.username);
                 } else {
-                    await store.addAccountStub({ steam_id: `pending:${a.username.toLowerCase()}`, account_name: a.username, email, source: a.source });
+                    await store.addAccountStub({ steam_id: `pending:${a.username.toLowerCase()}`, account_name: a.username, email, source: a.source, shared_secret: a.shared_secret });
                     addedPending.push(a.username);
                 }
             }
