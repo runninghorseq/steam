@@ -9,21 +9,35 @@ function extractSharedSecret(line) {
     return (line || '').split(/----|[|:]/).map((f) => f.trim()).find((f) => SHARED_SECRET_RE.test(f)) || null;
 }
 
+const EMAIL_RE = /^[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}$/;
+// The account's email inbox address and its password. The password is the field
+// immediately after the email in the line (the common
+// `id|email|emailpass|user|steampass` layout) — not a SteamID64 or another email.
+function extractEmailCreds(line) {
+    const fields = (line || '').split(/----|[|:]/).map((f) => f.trim());
+    const i = fields.findIndex((f) => EMAIL_RE.test(f));
+    if (i < 0) return { email: null, email_password: null };
+    const next = fields[i + 1];
+    const email_password = (next && !/^7656119\d{10}$/.test(next) && !next.includes('@')) ? next : null;
+    return { email: fields[i], email_password: email_password || null };
+}
+
 function parseSteamAccounts(filePath) {
     const data = fs.readFileSync(filePath, 'utf8');
     const lines = data.split('\n').filter(l => l.trim());
     return lines.map((line, index) => {
         const shared_secret = extractSharedSecret(line);
+        const { email, email_password } = extractEmailCreds(line);
         if (line.includes('|')) {
             const parts = line.split('|');
-            return { id: index + 1, username: parts[3], password: parts[4], shared_secret, rawLine: line };
+            return { id: index + 1, username: parts[3], password: parts[4], email, email_password, shared_secret, rawLine: line };
         }
         if (line.includes(':')) {
             const parts = line.split(':');
-            return { id: index + 1, username: parts[0], password: parts[1], shared_secret, rawLine: line };
+            return { id: index + 1, username: parts[0], password: parts[1], email, email_password, shared_secret, rawLine: line };
         }
         const parts = line.split('----');
-        return { id: index + 1, username: parts[0], password: parts[1], shared_secret, rawLine: line };
+        return { id: index + 1, username: parts[0], password: parts[1], email, email_password, shared_secret, rawLine: line };
     });
 }
 

@@ -183,15 +183,27 @@ function scanAccount(account, opts = {}) {
             // "SteamID only": we just needed to log in to learn the SteamID64. Save
             // the id (+ login name / captured password) and finish — no persona,
             // wallet, friends, licenses, gifts, or the community-page fetch.
+            // Credentials carried by the upload line — persisted on every scan so a
+            // scanned account keeps its steam/email passwords (and mailbox email).
+            const lineCreds = {
+                account_name: account.username,
+                source: account.source ?? null,
+                steam_password: account.password ?? null,
+                email: account.email ?? null,
+                email_password: account.email_password ?? null,
+            };
+
             if (idOnly) {
-                store.saveAccount({ steam_id: steamID, account_name: account.username, source: account.source ?? null, steam_password: account.password ?? null })
+                store.saveAccount({ steam_id: steamID, ...lineCreds })
                     .then(() => store.dropPendingStub(account.username)) // replace any pending:<username> placeholder
                     .then(() => { log(`${tag} steamID saved`); finish({ ok: true, account, steam_id: steamID }); })
                     .catch((e) => finish({ ok: false, reason: e.message, account }));
                 return;
             }
 
-            // Now that we have the real SteamID, drop any add-only placeholder row.
+            // Now that we have the real SteamID, drop any add-only placeholder row +
+            // persist the line credentials (a full scan otherwise never stores them).
+            store.saveAccount({ steam_id: steamID, ...lineCreds }).catch(() => {});
             store.dropPendingStub(account.username).catch(() => {});
             client.setPersona(SteamUser.EPersonaState.Online);
             client.gamesPlayed([]);

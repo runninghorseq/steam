@@ -1053,16 +1053,17 @@ async function handleAPI(req, res, url) {
             const addedPending = []; // no id -> pending:<username> placeholder
             for (const a of accounts) {
                 const idm = /\b(765611\d{11})\b/.exec(a.rawLine || '');
-                // Find the email by splitting on the line delimiters, so a dash run
-                // ("----") can't be swallowed into the local part.
-                const email = (a.rawLine || '').split(/----|[|:]/)
-                    .map((f) => f.trim())
-                    .find((f) => /^[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}$/.test(f)) || null;
+                // email + the two passwords come from the parser (steam_password is
+                // the login password; email_password is the field after the email).
+                const stub = {
+                    account_name: a.username, email: a.email, source: a.source,
+                    shared_secret: a.shared_secret, steam_password: a.password, email_password: a.email_password,
+                };
                 if (idm) {
-                    await store.addAccountStub({ steam_id: idm[1], account_name: a.username, email, source: a.source, shared_secret: a.shared_secret });
+                    await store.addAccountStub({ steam_id: idm[1], ...stub });
                     added.push(a.username);
                 } else {
-                    await store.addAccountStub({ steam_id: `pending:${a.username.toLowerCase()}`, account_name: a.username, email, source: a.source, shared_secret: a.shared_secret });
+                    await store.addAccountStub({ steam_id: `pending:${a.username.toLowerCase()}`, ...stub });
                     addedPending.push(a.username);
                 }
             }

@@ -124,14 +124,16 @@ async function addAccountStub(partial) {
     if (!USE_D1) return L().addAccountStub(partial);
     const ts = now();
     await d1n.d1run(
-        'INSERT INTO accounts (steam_id, account_name, email, source, shared_secret, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) '
+        'INSERT INTO accounts (steam_id, account_name, email, source, shared_secret, steam_password, email_password, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) '
         + 'ON CONFLICT(steam_id) DO UPDATE SET '
         + '  account_name = COALESCE(excluded.account_name, accounts.account_name),'
         + '  email = COALESCE(excluded.email, accounts.email),'
         + '  source = COALESCE(excluded.source, accounts.source),'
         + '  shared_secret = COALESCE(excluded.shared_secret, accounts.shared_secret),'
+        + '  steam_password = COALESCE(excluded.steam_password, accounts.steam_password),'
+        + '  email_password = COALESCE(excluded.email_password, accounts.email_password),'
         + '  updated_at = excluded.updated_at',
-        [partial.steam_id, partial.account_name ?? null, partial.email ?? null, partial.source ?? null, partial.shared_secret ?? null, ts, ts]);
+        [partial.steam_id, partial.account_name ?? null, partial.email ?? null, partial.source ?? null, partial.shared_secret ?? null, partial.steam_password ?? null, partial.email_password ?? null, ts, ts]);
 }
 
 // Remove the `pending:<username>` placeholder once the real SteamID row exists
