@@ -73,7 +73,8 @@ function checkAuth(req, url, env) {
     // The scoped FEED_TOKEN (given to the other repo) can READ the feed and UPDATE
     // an account's status (e.g. mark sold after delivery) — nothing else.
     if (env.FEED_TOKEN && (tokenMatches(q, env.FEED_TOKEN) || tokenMatches(header, env.FEED_TOKEN))
-        && (url.pathname === '/api/accounts/feed' || /^\/api\/accounts\/\d{17}\/status$/.test(url.pathname))) return null;
+        && (url.pathname === '/api/accounts/feed' || url.pathname === '/api/shop/claim'
+            || /^\/api\/accounts\/\d{17}\/status$/.test(url.pathname))) return null;
     if (url.pathname.startsWith('/api/')) return json({ error: 'unauthorized' }, 401);
     return new Response(
         '<!doctype html><meta charset=utf-8><body style="font:15px system-ui;max-width:34rem;margin:12vh auto;padding:0 1rem;color:#333"><h2>Authorization required</h2><p>Open this dashboard with <code>?token=YOUR_TOKEN</code> appended once. It is then remembered in a cookie.</p></body>',
@@ -575,6 +576,70 @@ async function handleApi(req, env, url, ctx) {
         const account = await env.DB.prepare('SELECT steam_id, account_name, persona, country, status, status_updated_at FROM accounts WHERE steam_id = ?').bind(m[1]).first();
         if (env.STATUS_WEBHOOK_URL && ctx) ctx.waitUntil(pushStatusWebhook(env, account));
         return json({ steam_id: m[1], status, pushed: !!env.STATUS_WEBHOOK_URL });
+    }
+
+    // Sell N accounts to one order, atomically. The shop calls this at delivery.
+    //
+    //   POST /api/shop/claim   { "order": "<token>", "count": 1 }
+    //   -> { order, requested, delivered, short, accounts: [ {..., steam_password,
+    //        email, email_password, shared_secret} ] }
+    //
+    // WHY THIS EXISTS rather than the shop reading the feed and POSTing a status:
+    // that status write is unconditional (WHERE steam_id = ?), so two buyers who
+    // read the same available account both succeed and both get the credentials.
+    // Here the UPDATE carries `AND status = 'available'`, so exactly one caller
+    // sees changes = 1 and the loser simply moves to the next account.
+    //
+    // IDEMPOTENT per order: rows already stamped with this order token come back
+    // unchanged, and only the shortfall is taken. The shop retries delivery on its
+    // own (SePay can confirm one transfer twice), so a replay must not buy again.
+    //
+    // Always answers 200 with what it managed to get; `short` says it could not
+    // fill the order. Deciding what to do about that is the shop's business — it
+    // knows whether the customer has paid.
+    if (method === 'POST' && p === '/api/shop/claim') {
+        const b = await body();
+        const order = typeof b.order === 'string' ? b.order.trim() : '';
+        if (!order || order.length > 64 || !/^[\w.#-]+$/.test(order)) {
+            return json({ error: "invalid 'order' (1-64 chars: letters, digits, _ . # -)" }, 400);
+        }
+        const want = Number.isFinite(b.count) && b.count > 0 ? Math.min(Math.floor(b.count), 50) : 1;
+
+        const COLS = 'steam_id, account_name, steam_password, email, email_password, shared_secret, persona, country, wallet_currency, wallet_balance_cents, steam_level, status, status_updated_at';
+
+        // Anything this order already owns. The replay path.
+        const mine = await rowsOf(env.DB.prepare(
+            `SELECT ${COLS} FROM accounts WHERE sold_order = ? ORDER BY status_updated_at`
+        ).bind(order));
+
+        let need = want - mine.length;
+        if (need > 0) {
+            // Over-fetch: under contention some of these will be taken between the
+            // read and our write, and each loss costs one candidate, not the claim.
+            const pool = await rowsOf(env.DB.prepare(
+                "SELECT steam_id FROM accounts WHERE status = 'available' AND sold_order IS NULL ORDER BY status_updated_at LIMIT ?"
+            ).bind(need * 3 + 5));
+
+            for (const cand of pool) {
+                if (need <= 0) break;
+                // The whole guarantee is on this line: `AND status = 'available'`
+                // means the row can be won once. changes = 0 => somebody else won.
+                const res = await env.DB.prepare(
+                    "UPDATE accounts SET status = 'sold', sold_order = ?, status_updated_at = unixepoch(), updated_at = unixepoch() WHERE steam_id = ? AND status = 'available' AND sold_order IS NULL"
+                ).bind(order, cand.steam_id).run();
+                if (!res.meta.changes) continue;
+                const row = await env.DB.prepare(`SELECT ${COLS} FROM accounts WHERE steam_id = ?`).bind(cand.steam_id).first();
+                if (row) { mine.push(row); need--; }
+            }
+        }
+
+        // Best-effort, and after the claim: a webhook that fails must not cost the
+        // customer an account that is already theirs.
+        if (env.STATUS_WEBHOOK_URL && ctx) {
+            for (const a of mine.slice(0, want)) ctx.waitUntil(pushStatusWebhook(env, a));
+        }
+        const accounts = mine.slice(0, want);
+        return json({ order, requested: want, delivered: accounts.length, short: accounts.length < want, accounts });
     }
 
     // Public feed for another repo: accounts + their status (optionally filtered by
