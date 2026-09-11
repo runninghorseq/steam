@@ -57,35 +57,113 @@ function tokenMatches(given, expected) {
     for (let i = 0; i < given.length; i++) diff |= given.charCodeAt(i) ^ expected.charCodeAt(i);
     return diff === 0;
 }
-function checkAuth(req, url, env) {
+
+// --- Cloudflare Access (Zero Trust SSO) -------------------------------------
+// When ACCESS_TEAM_DOMAIN + ACCESS_AUD are set, a request carrying a valid Access
+// JWT (the Cf-Access-Jwt-Assertion header / CF_Authorization cookie that Access
+// injects after SSO login) authenticates as that user — no shared token in the
+// browser. We verify the RS256 signature against the team's public keys plus
+// aud/iss/exp, so the Worker can't be reached behind Access's back. Automation
+// still uses the tokens below.
+const b64urlBytes = (s) => {
+    s = s.replace(/-/g, '+').replace(/_/g, '/');
+    s += '='.repeat((4 - (s.length % 4)) % 4);
+    const bin = atob(s), out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+};
+let _accessKeys = null; // { t, keys: Map<kid, CryptoKey> }
+async function accessKeys(teamDomain) {
+    if (_accessKeys && Date.now() - _accessKeys.t < 3600000) return _accessKeys.keys;
+    const certs = await (await fetch(`https://${teamDomain}/cdn-cgi/access/certs`)).json();
+    const keys = new Map();
+    for (const jwk of certs.keys || []) {
+        keys.set(jwk.kid, await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']));
+    }
+    _accessKeys = { t: Date.now(), keys };
+    return keys;
+}
+async function verifyAccessJwt(req, env) {
+    if (!env.ACCESS_TEAM_DOMAIN || !env.ACCESS_AUD) return null;
+    const token = req.headers.get('Cf-Access-Jwt-Assertion') || parseCookies(req).CF_Authorization;
+    if (!token) return null;
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    let header, payload;
+    try {
+        header = JSON.parse(new TextDecoder().decode(b64urlBytes(parts[0])));
+        payload = JSON.parse(new TextDecoder().decode(b64urlBytes(parts[1])));
+    } catch { return null; }
+    const key = (await accessKeys(env.ACCESS_TEAM_DOMAIN).catch(() => null))?.get(header.kid);
+    if (!key) return null;
+    const ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, b64urlBytes(parts[2]), new TextEncoder().encode(parts[0] + '.' + parts[1]));
+    if (!ok) return null;
+    const auds = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+    if (!auds.includes(env.ACCESS_AUD)) return null;
+    if (payload.iss && payload.iss !== `https://${env.ACCESS_TEAM_DOMAIN}`) return null;
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null;
+    return payload.email || payload.sub || 'access-user';
+}
+
+const authCookie = (name, val) => `${name}=${encodeURIComponent(val)}; HttpOnly; SameSite=Strict; Secure; Path=/; Max-Age=2592000`;
+
+function loginPage(needPw) {
+    return `<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
+<title>Sign in</title>
+<body style="font:15px system-ui;max-width:20rem;margin:14vh auto;padding:0 1rem;color:#222">
+<h2 style="margin-bottom:14px">Sign in</h2>
+<form method=GET>
+${needPw ? '<p><input name=password type=password placeholder="Password" autocomplete="current-password" autofocus required style="width:100%;padding:9px;box-sizing:border-box;border:1px solid #ccc;border-radius:6px"></p>' : ''}
+<p><input name=token type=password placeholder="Access token" autocomplete="off" required style="width:100%;padding:9px;box-sizing:border-box;border:1px solid #ccc;border-radius:6px"></p>
+<button style="padding:9px 16px;border:0;border-radius:6px;background:#0969da;color:#fff;cursor:pointer">Sign in</button>
+</form>
+<p style="color:#888;font-size:13px;margin-top:14px">${needPw ? 'Both the password and the access token are required.' : ''}</p></body>`;
+}
+
+async function checkAuth(req, url, env) {
+    // A verified Cloudflare Access SSO session authenticates on its own.
+    if (await verifyAccessJwt(req, env)) return null;
     const TOKEN = env.DASHBOARD_TOKEN || '';
     if (!TOKEN) return null;
-    const q = url.searchParams.get('token');
-    if (q && tokenMatches(q, TOKEN)) {
-        const cookie = `dash_token=${encodeURIComponent(TOKEN)}; HttpOnly; SameSite=Strict; Secure; Path=/; Max-Age=2592000`;
+    // Two-secret mode: when DASHBOARD_PASSWORD is set, BOTH the token AND the
+    // password must match. The cookies are only issued once both verify, so the
+    // cookie pair alone authenticates subsequent requests.
+    const PW = env.DASHBOARD_PASSWORD || '';
+    const q = url.searchParams;
+    const c = parseCookies(req);
+    const hdrTok = req.headers.get('x-dashboard-token') || (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
+    const hdrPw = req.headers.get('x-dashboard-password') || '';
+    const pwOk = (v) => !PW || tokenMatches(v, PW);
+
+    // Established session (cookies set only after both secrets verified).
+    if (tokenMatches(c.dash_token, TOKEN) && pwOk(c.dash_pw)) return null;
+    // Header auth (automation sends both secrets).
+    if (tokenMatches(hdrTok, TOKEN) && pwOk(hdrPw)) return null;
+    // Query auth (login form / first visit): validate both, set cookies, strip params.
+    if (tokenMatches(q.get('token'), TOKEN) && pwOk(q.get('password'))) {
         if (url.pathname.startsWith('/api/')) return null;
-        url.searchParams.delete('token');
-        return new Response(null, { status: 302, headers: { Location: url.pathname + (url.search || ''), 'Set-Cookie': cookie } });
+        q.delete('token'); q.delete('password');
+        const h = new Headers({ Location: url.pathname + (url.search || '') });
+        h.append('Set-Cookie', authCookie('dash_token', TOKEN));
+        if (PW) h.append('Set-Cookie', authCookie('dash_pw', PW));
+        return new Response(null, { status: 302, headers: h });
     }
-    const cookie = parseCookies(req).dash_token;
-    const header = req.headers.get('x-dashboard-token') || (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '');
-    if (tokenMatches(cookie, TOKEN) || tokenMatches(header, TOKEN)) return null;
-    // The scoped FEED_TOKEN (given to the other repo) can READ the feed and UPDATE
-    // an account's status (e.g. mark sold after delivery) — nothing else.
-    if (env.FEED_TOKEN && (tokenMatches(q, env.FEED_TOKEN) || tokenMatches(header, env.FEED_TOKEN))
+    // Scoped FEED_TOKEN (given to the other repo) — READ the feed / UPDATE a status
+    // / shop endpoints only. Single secret by design (no password) so the consumer
+    // needs just the one token.
+    if (env.FEED_TOKEN && (tokenMatches(q.get('token'), env.FEED_TOKEN) || tokenMatches(hdrTok, env.FEED_TOKEN))
         && (url.pathname === '/api/accounts/feed' || url.pathname === '/api/shop/claim'
             || url.pathname === '/api/shop/gift-items'
             || /^\/api\/accounts\/\d{17}\/status$/.test(url.pathname))) return null;
     if (url.pathname.startsWith('/api/')) return json({ error: 'unauthorized' }, 401);
-    return new Response(
-        '<!doctype html><meta charset=utf-8><body style="font:15px system-ui;max-width:34rem;margin:12vh auto;padding:0 1rem;color:#333"><h2>Authorization required</h2><p>Open this dashboard with <code>?token=YOUR_TOKEN</code> appended once. It is then remembered in a cookie.</p></body>',
-        { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
-    );
+    return new Response(loginPage(!!PW), { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 function maybeSetCookie(req, url, env, res) {
-    const TOKEN = env.DASHBOARD_TOKEN || '';
-    if (TOKEN && url.searchParams.get('token') && tokenMatches(url.searchParams.get('token'), TOKEN)) {
-        res.headers.append('Set-Cookie', `dash_token=${encodeURIComponent(TOKEN)}; HttpOnly; SameSite=Strict; Secure; Path=/; Max-Age=2592000`);
+    const TOKEN = env.DASHBOARD_TOKEN || '', PW = env.DASHBOARD_PASSWORD || '';
+    const q = url.searchParams;
+    if (TOKEN && q.get('token') && tokenMatches(q.get('token'), TOKEN) && (!PW || tokenMatches(q.get('password'), PW))) {
+        res.headers.append('Set-Cookie', authCookie('dash_token', TOKEN));
+        if (PW) res.headers.append('Set-Cookie', authCookie('dash_pw', PW));
     }
     return res;
 }
@@ -252,7 +330,7 @@ async function getOldestFriendNames(env, { account, limit, gameName, game, exclu
     params.push(...excludeSentItems, ...exN.params, ...prio.params, limit);
     const rows = await rowsOf(env.DB.prepare(
         'SELECT f.friend_name FROM accounts a JOIN friends f ON f.account_steam_id = a.steam_id WHERE a.account_name = ? '
-        + "  AND f.added_at IS NOT NULL AND f.added_at > 0   AND f.gifted_at IS NULL   AND f.country != 'VN' "
+        + "  AND f.added_at IS NOT NULL AND f.added_at > 0   AND f.gifted_at IS NULL   AND (f.country IS NULL OR f.country != 'VN') "
         + giftedClause + anySentClause + sentItemsClause + exN.sql + 'ORDER BY ' + prio.sql + 'f.added_at ASC LIMIT ?'
     ).bind(...params));
     return { candidates: rows.map((r) => ({ friend_name: r.friend_name, friend_steam_id: null })), reason: rows.length ? null : `Account '${account}' has no giftable friends left` };
@@ -279,7 +357,7 @@ async function getGame2Friends(env, { account, limit, game, excludeNames, priori
     params.push(itemName, ...exN.params, ...prio.params, limit);
     const rows = await rowsOf(env.DB.prepare(
         'SELECT f.friend_name, f.friend_steam_id FROM accounts a JOIN friends f ON f.account_steam_id = a.steam_id WHERE a.account_name = ? '
-        + "  AND f.country != 'VN'   AND f.friend_steam_id IS NOT NULL AND f.friend_steam_id != '' "
+        + "  AND (f.country IS NULL OR f.country != 'VN')   AND f.friend_steam_id IS NOT NULL AND f.friend_steam_id != '' "
         + priorClause + excludeGiftedClause + excludeSentClause + excludeAnySentClause + excludeFailedClause
         + '  AND NOT EXISTS (    SELECT 1 FROM sent_gifts sg2     WHERE sg2.item_name = ?       AND (sg2.recipient_steam_id = f.friend_steam_id            OR lower(sg2.recipient_name) = lower(f.friend_name))  ) '
         + exN.sql + 'ORDER BY ' + prio.sql + 'f.gifted_at ASC LIMIT ?'
@@ -513,6 +591,43 @@ async function handleApi(req, env, url, ctx) {
             sold: await c("SELECT COUNT(*) c FROM accounts WHERE status = 'sold'"),
             reserved: await c("SELECT COUNT(*) c FROM accounts WHERE status = 'reserved'"),
         });
+    }
+
+    // Gift capacity: accounts running low on giftable friends, so you know which
+    // to top up (add friends, wait `days` for the Steam gifting cooldown). Giftable
+    // = un-gifted, non-VN friend; mature = added >= `days` ago (available now).
+    // Returns accounts with giftable < `max` (default 50), lowest first.
+    if (method === 'GET' && p === '/api/accounts/gift-capacity') {
+        const max = Number(url.searchParams.get('max')) > 0 ? Number(url.searchParams.get('max')) : 50;
+        const days = Number(url.searchParams.get('days')) >= 0 ? Number(url.searchParams.get('days')) : 30;
+        const cutoff = now() - days * 86400;
+        const country = (url.searchParams.get('country') || '').trim();
+        const walletMinUsd = Number(url.searchParams.get('wallet_min'));
+        const walletMinCents = Number.isFinite(walletMinUsd) && url.searchParams.get('wallet_min') !== '' ? Math.round(walletMinUsd * 100) : null;
+        const SORT = { giftable: 'giftable', mature: 'mature', friends: 'friend_count', wallet: 'wallet_balance_cents', account: 'account_name COLLATE NOCASE', country: 'country' };
+        const sortCol = SORT[url.searchParams.get('sort')] || 'mature';
+        const dir = String(url.searchParams.get('dir')).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+        // Giftable mirrors the bot's candidate filter: added, not gifted on this
+        // account, not gifted on ANY account (by steamid or name), non-VN (unknown
+        // country still counts). Country is filterable via ?country=.
+        const gCond = "f.gifted_at IS NULL AND f.added_at > 0 AND (f.country IS NULL OR f.country != 'VN')"
+            + " AND NOT EXISTS (SELECT 1 FROM friends f2 WHERE (f2.friend_steam_id = f.friend_steam_id OR lower(f2.friend_name) = lower(f.friend_name)) AND f2.gifted_at IS NOT NULL AND f2.gifted_at > 0)";
+        const args = [cutoff];                     // mature subquery
+        const conds = ['giftable < ?']; args.push(max);
+        if (url.searchParams.get('tokened') === '1') conds.push('has_token > 0');
+        if (country) { conds.push('country = ?'); args.push(country); }
+        if (walletMinCents != null) { conds.push('wallet_balance_cents >= ?'); args.push(walletMinCents); }
+        const rows = await rowsOf(env.DB.prepare(
+            `SELECT * FROM (
+               SELECT a.steam_id, a.account_name, a.status, a.country, a.wallet_currency, a.wallet_balance_cents,
+                 (SELECT COUNT(*) FROM auth_tokens t WHERE lower(t.account_name) = lower(a.account_name)) AS has_token,
+                 (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id) AS friend_count,
+                 (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND ${gCond}) AS giftable,
+                 (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND ${gCond} AND f.added_at <= ?) AS mature
+               FROM accounts a WHERE a.steam_id NOT LIKE 'pending:%'
+             ) WHERE ${conds.join(' AND ')} ORDER BY ${sortCol} ${dir}, giftable ASC LIMIT 2000`
+        ).bind(...args));
+        return json({ max, days, country, wallet_min: walletMinCents != null ? walletMinCents / 100 : null, sort: url.searchParams.get('sort') || 'mature', dir: dir.toLowerCase(), count: rows.length, accounts: rows });
     }
 
     if (method === 'GET' && p === '/api/accounts') {
@@ -1068,7 +1183,7 @@ export default {
         // Route DB access to Turso (libSQL) when configured; otherwise the D1 binding.
         if (env.TURSO_DATABASE_URL) env.DB = tursoDB(env);
         const url = new URL(req.url);
-        const authRes = checkAuth(req, url, env);
+        const authRes = await checkAuth(req, url, env);
         if (authRes) return authRes;
         if (url.pathname.startsWith('/api/')) {
             try { return maybeSetCookie(req, url, env, await handleApi(req, env, url, ctx)); }

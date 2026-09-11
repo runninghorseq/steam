@@ -91,7 +91,7 @@ const ACCOUNTS_BY_LOWER = new Map(Object.keys(ACCOUNTS).map(k => [k.toLowerCase(
 const lookupAccount = (id) => ACCOUNTS[id] || ACCOUNTS_BY_LOWER.get(String(id).toLowerCase());
 
 // Which steamIDs to add — each entry resolves to one invite link via QUICK_INVITE_LINKS
-const run = ['bimbofrosinpkg', 'hulitvelez']
+const run = ['pittafridyc', 'nookstostazr']
     // 'kienpoe222', 'CleokCeceliahf', 'LaurelkJohnniehl']
 // const run = ['quilloasisludef', 'torrentleonardzcidb', 'ultranovathompsonxftuc'];
 

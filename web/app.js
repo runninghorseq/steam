@@ -597,6 +597,75 @@ function viewPlaytime() {
     return [bar, el('div', { className: 'table-wrap' }, el('table', {}, el('thead', {}, head), tbody))];
 }
 
+// Gifting capacity: accounts running low on giftable friends, so you know which
+// to top up (add friends, wait `days` for Steam's gifting cooldown). Self-fetches.
+function viewGifting() {
+    state.gift = state.gift || { max: 50, days: 30, tokened: true, country: '', walletMin: '', sort: 'mature', dir: 'asc' };
+    const g = state.gift;
+    const wrap = el('div');
+    const maxIn = el('input', { type: 'number', value: g.max, min: '1', style: 'width:66px' });
+    const daysIn = el('input', { type: 'number', value: g.days, min: '0', style: 'width:56px' });
+    const countryIn = el('input', { type: 'text', placeholder: 'e.g. US', value: g.country, style: 'width:60px; text-transform:uppercase' });
+    const walletIn = el('input', { type: 'number', placeholder: '$ min', step: '0.01', min: '0', value: g.walletMin, style: 'width:72px' });
+    const tokenedCb = el('input', { type: 'checkbox', checked: g.tokened });
+    const panel = el('div', { className: 'empty' }, 'Loading…');
+    // Sortable columns: [label, sortKey|null]
+    const COLS = [['Account', 'account'], ['CC', 'country'], ['Status', null], ['Wallet', 'wallet'], ['Friends', 'friends'], ['Giftable', 'giftable'], ['Available now', 'mature']];
+
+    const refresh = async () => {
+        panel.replaceChildren(el('div', { className: 'empty' }, 'Loading…'));
+        g.max = Number(maxIn.value) || 50;
+        g.days = Number(daysIn.value) >= 0 ? Number(daysIn.value) : 30;
+        g.tokened = tokenedCb.checked;
+        g.country = countryIn.value.trim().toUpperCase();
+        g.walletMin = walletIn.value.trim();
+        const qs = new URLSearchParams({ max: g.max, days: g.days, sort: g.sort, dir: g.dir });
+        if (g.tokened) qs.set('tokened', '1');
+        if (g.country) qs.set('country', g.country);
+        if (g.walletMin !== '') qs.set('wallet_min', g.walletMin);
+        try {
+            const d = await api(`/api/accounts/gift-capacity?${qs}`);
+            const note = el('div', { className: 'dim', style: 'margin-bottom:8px; font-size:12px' },
+                `${d.count} account(s) under ${d.max} giftable friends${g.country ? ` · ${g.country}` : ''}${g.walletMin !== '' ? ` · wallet ≥ $${g.walletMin}` : ''}. "Available now" = un-gifted friends added ≥ ${d.days} days ago; the rest mature over the next ${d.days} days.`);
+            if (!d.accounts.length) { panel.replaceChildren(note, el('div', { className: 'empty' }, 'None match 🎉')); return; }
+            const head = el('tr', {}, ...COLS.map(([label, key]) => {
+                const active = key && g.sort === key;
+                const th = el('th', { className: (key === 'wallet' || key === 'friends' || key === 'giftable' || key === 'mature' ? 'num ' : '') + (key ? '' : 'no-sort') },
+                    label, active ? el('span', { className: 'arrow' }, g.dir === 'asc' ? ' ▲' : ' ▼') : '');
+                if (key) th.onclick = () => { if (g.sort === key) g.dir = g.dir === 'asc' ? 'desc' : 'asc'; else { g.sort = key; g.dir = (key === 'account' || key === 'country') ? 'asc' : 'desc'; } refresh(); };
+                return th;
+            }));
+            const tbl = el('div', { className: 'table-wrap' }, el('table', {}, el('thead', {}, head),
+                el('tbody', {}, ...d.accounts.map((a) => {
+                    const tr = el('tr', { className: 'clickable' },
+                        el('td', { className: 'name' }, a.account_name || a.steam_id, a.has_token ? '' : el('span', { className: 'tag notok', style: 'margin-left:6px' }, 'no token')),
+                        el('td', { className: 'dim' }, a.country || '—'),
+                        el('td', {}, a.status && a.status !== 'available' ? el('span', { className: 'tag loan' }, a.status) : (a.status || '—')),
+                        el('td', { className: 'num' }, money(a.wallet_balance_cents, a.wallet_currency)),
+                        el('td', { className: 'num dim' }, a.friend_count),
+                        el('td', { className: 'num' }, a.giftable),
+                        el('td', { className: 'num' }, a.mature));
+                    tr.onclick = (ev) => { if (!ev.target.closest('button')) openDetail(a.steam_id); };
+                    return tr;
+                }))));
+            panel.replaceChildren(note, tbl);
+        } catch (e) { panel.replaceChildren(el('div', { className: 'empty' }, e.message)); }
+    };
+    const go = el('button', { className: 'act primary' }, 'Apply');
+    go.onclick = refresh;
+    [maxIn, daysIn, countryIn, walletIn, tokenedCb].forEach((c) => { c.onchange = refresh; });
+    const lbl = (t) => el('span', { className: 'dim', style: 'font-size:12px' }, t);
+    wrap.append(
+        el('div', { style: 'margin-bottom:8px; font-weight:600' }, 'Accounts low on giftable friends'),
+        el('div', { className: 'toolbar', style: 'margin-bottom:12px; flex-wrap:wrap' },
+            lbl('Under'), maxIn, lbl('giftable · mature'), daysIn, lbl('d'),
+            lbl('· country'), countryIn, lbl('· wallet ≥ $'), walletIn,
+            el('label', { style: 'display:flex; gap:5px; align-items:center; font-size:12px; color:var(--muted)' }, tokenedCb, 'tokened only'), go),
+        panel);
+    refresh();
+    return [wrap];
+}
+
 function viewScan() {
     const wrap = el('div');
 
@@ -1242,9 +1311,10 @@ const ENDPOINTS = {
     friends: () => `/api/friends?q=${encodeURIComponent(state.q)}`,
     licenses: () => `/api/licenses?q=${encodeURIComponent(state.q)}`,
     playtime: () => `/api/playtime?q=${encodeURIComponent(state.q)}`,
+    gifting: null,
     scan: null
 };
-const VIEWS = { accounts: viewAccounts, sent: viewSent, friends: viewFriends, licenses: viewLicenses, playtime: viewPlaytime, scan: viewScan };
+const VIEWS = { accounts: viewAccounts, sent: viewSent, friends: viewFriends, licenses: viewLicenses, playtime: viewPlaytime, gifting: viewGifting, scan: viewScan };
 
 async function load() {
     try {

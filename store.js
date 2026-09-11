@@ -25,6 +25,7 @@ const L = () => (_local || (_local = require('./db')));
 
 const WORKER_URL = (process.env.WORKER_URL || '').trim().replace(/\/+$/, '');
 const WORKER_TOKEN = (process.env.DASHBOARD_TOKEN || process.env.STEAM_API_TOKEN || '').trim();
+const WORKER_PASSWORD = (process.env.DASHBOARD_PASSWORD || '').trim(); // second secret, when the Worker requires token + password
 const USE_WORKER = !!WORKER_URL;
 const USE_D1 = !USE_WORKER && d1n.enabled();
 
@@ -48,6 +49,7 @@ async function wcall(op, args = {}) {
         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
     };
     if (WORKER_TOKEN) headers['X-Dashboard-Token'] = WORKER_TOKEN;
+    if (WORKER_PASSWORD) headers['X-Dashboard-Password'] = WORKER_PASSWORD;
     let res;
     try {
         res = await fetch(`${WORKER_URL}/api/ingest`, { method: 'POST', headers, body: JSON.stringify({ op, ...args }) });

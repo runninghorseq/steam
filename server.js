@@ -671,6 +671,40 @@ async function handleAPI(req, res, url) {
         });
     }
 
+    // Gift capacity: accounts low on giftable friends (un-gifted, non-VN); mature =
+    // added >= `days` ago. Lists accounts with giftable < `max` (default 50).
+    if (method === 'GET' && p === '/api/accounts/gift-capacity') {
+        const max = Number(url.searchParams.get('max')) > 0 ? Number(url.searchParams.get('max')) : 50;
+        const days = Number(url.searchParams.get('days')) >= 0 ? Number(url.searchParams.get('days')) : 30;
+        const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
+        const country = (url.searchParams.get('country') || '').trim();
+        const walletMinUsd = Number(url.searchParams.get('wallet_min'));
+        const walletMinCents = Number.isFinite(walletMinUsd) && url.searchParams.get('wallet_min') !== '' ? Math.round(walletMinUsd * 100) : null;
+        const SORT = { giftable: 'giftable', mature: 'mature', friends: 'friend_count', wallet: 'wallet_balance_cents', account: 'account_name COLLATE NOCASE', country: 'country' };
+        const sortCol = SORT[url.searchParams.get('sort')] || 'mature';
+        const dir = String(url.searchParams.get('dir')).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+        // Mirror the bot's candidate filter: added, un-gifted on this account AND on
+        // ANY account (by steamid or name), non-VN (unknown country still counts).
+        const gCond = "f.gifted_at IS NULL AND f.added_at > 0 AND (f.country IS NULL OR f.country != 'VN')"
+            + " AND NOT EXISTS (SELECT 1 FROM friends f2 WHERE (f2.friend_steam_id = f.friend_steam_id OR lower(f2.friend_name) = lower(f.friend_name)) AND f2.gifted_at IS NOT NULL AND f2.gifted_at > 0)";
+        const params = { cutoff, max };
+        const conds = ['giftable < @max'];
+        if (url.searchParams.get('tokened') === '1') conds.push('has_token > 0');
+        if (country) { conds.push('country = @country'); params.country = country; }
+        if (walletMinCents != null) { conds.push('wallet_balance_cents >= @walletMin'); params.walletMin = walletMinCents; }
+        const rows = db.prepare(
+            `SELECT * FROM (
+               SELECT a.steam_id, a.account_name, a.status, a.country, a.wallet_currency, a.wallet_balance_cents,
+                 (SELECT COUNT(*) FROM auth_tokens t WHERE lower(t.account_name) = lower(a.account_name)) AS has_token,
+                 (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id) AS friend_count,
+                 (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND ${gCond}) AS giftable,
+                 (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND ${gCond} AND f.added_at <= @cutoff) AS mature
+               FROM accounts a WHERE a.steam_id NOT LIKE 'pending:%'
+             ) WHERE ${conds.join(' AND ')} ORDER BY ${sortCol} ${dir}, giftable ASC LIMIT 2000`
+        ).all(params);
+        return sendJSON(res, 200, { max, days, country, wallet_min: walletMinCents != null ? walletMinCents / 100 : null, sort: url.searchParams.get('sort') || 'mature', dir: dir.toLowerCase(), count: rows.length, accounts: rows });
+    }
+
     if (method === 'GET' && p === '/api/accounts') {
         const num = (k) => url.searchParams.get(k) !== null && url.searchParams.get(k) !== '' ? Number(url.searchParams.get(k)) : null;
         return sendJSON(res, 200, listAccounts({

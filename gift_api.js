@@ -94,7 +94,7 @@ function getOldestFriendNames({ account, limit, gameName, game, excludeNames, pr
         'WHERE a.account_name = ? ' +
         '  AND f.added_at IS NOT NULL AND f.added_at > 0 ' +
         '  AND f.gifted_at IS NULL ' +
-        "  AND f.country != 'VN' " +
+        "  AND (f.country IS NULL OR f.country != 'VN') " +
         giftedClause + anySentClause + sentItemsClause + exN.sql +
         'ORDER BY ' + prio.sql + 'f.added_at ASC LIMIT ?'
     ).all(...params);
@@ -179,7 +179,7 @@ function getGame2Friends({ account, limit, game, excludeNames, priorityNames }) 
         'SELECT f.friend_name, f.friend_steam_id ' +
         'FROM accounts a JOIN friends f ON f.account_steam_id = a.steam_id ' +
         'WHERE a.account_name = ? ' +
-        "  AND f.country != 'VN' " +
+        "  AND (f.country IS NULL OR f.country != 'VN') " +
         "  AND f.friend_steam_id IS NOT NULL AND f.friend_steam_id != '' " +
         priorClause + excludeGiftedClause + excludeSentClause + excludeAnySentClause + excludeFailedClause +
         '  AND NOT EXISTS (' +

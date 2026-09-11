@@ -45,8 +45,9 @@ const path = require('path');
 // marks friends gifted through the API, so it works from any machine without a
 // local DB and always sees the live data. Point at the Worker (which reads/writes
 // Turso); override with STEAM_API_BASE. Token via STEAM_API_TOKEN / DASHBOARD_TOKEN.
-const API_BASE = (process.env.STEAM_API_BASE || 'https://steam-dashboard.fungamingsteam.workers.dev').replace(/\/+$/, '');
+const API_BASE = (process.env.STEAM_API_BASE || 'https://steam.fungamingvn.space').replace(/\/+$/, '');
 const API_TOKEN = process.env.STEAM_API_TOKEN || process.env.DASHBOARD_TOKEN || '89d1146bef759c827dfae6ebd840e1d4';
+const API_PASSWORD = process.env.STEAM_API_PASSWORD || process.env.DASHBOARD_PASSWORD || ''; // second secret, when the server requires token + password
 
 // Shared headers — Cloudflare fronts the domain and blocks non-browser signatures.
 function apiHeaders(extra = {}) {
@@ -56,6 +57,7 @@ function apiHeaders(extra = {}) {
         ...extra,
     };
     if (API_TOKEN) h['X-Dashboard-Token'] = API_TOKEN;
+    if (API_PASSWORD) h['X-Dashboard-Password'] = API_PASSWORD;
     return h;
 }
 async function apiPost(pathname, payload) {

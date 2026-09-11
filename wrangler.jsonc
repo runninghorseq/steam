@@ -13,7 +13,12 @@
   //   npx wrangler secret put TURSO_AUTH_TOKEN
   // Unset this var to fall back to D1.
   "vars": {
-    "TURSO_DATABASE_URL": "libsql://steam-phamtuyenhien.aws-ap-northeast-1.turso.io"
+    "TURSO_DATABASE_URL": "libsql://steam-phamtuyenhien.aws-ap-northeast-1.turso.io",
+    // Cloudflare Access (Zero Trust SSO). Fill both to require SSO login in the
+    // browser (no shared token). ACCESS_TEAM_DOMAIN = "<team>.cloudflareaccess.com";
+    // ACCESS_AUD = the Access application's Audience (AUD) tag. Empty = disabled.
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": ""
   },
   // D1 database (fallback / legacy) on the fungamingsteam account.
   "d1_databases": [
