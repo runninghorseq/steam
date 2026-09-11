@@ -55,6 +55,9 @@ if (!accountCols.includes('status_updated_at')) {
 if (!accountCols.includes('shared_secret')) {
     db.exec('ALTER TABLE accounts ADD COLUMN shared_secret TEXT');
 }
+if (!accountCols.includes('note')) {
+    db.exec('ALTER TABLE accounts ADD COLUMN note TEXT');
+}
 
 const upsertAccount = db.prepare(`
 INSERT INTO accounts (steam_id, account_name, persona, country, email, wallet_currency, wallet_balance_cents, steam_level, steam_points, source, steam_password, email_password, scanned_at, created_at, updated_at)

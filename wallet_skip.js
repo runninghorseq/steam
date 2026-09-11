@@ -22,6 +22,9 @@
 // Filters combine with AND. Every command prints what it matched before touching
 // anything, and --dry-run stops there.
 
+// Load .env so the CLI has TURSO_*/DASHBOARD_TOKEN/etc. without sourcing it.
+require('dotenv').config({ path: require('path').join(__dirname, '.env'), quiet: true });
+
 const API_BASE = (process.env.STEAM_API_BASE || 'https://steam-dashboard.fungamingsteam.workers.dev').replace(/\/+$/, '');
 const API_TOKEN = process.env.STEAM_API_TOKEN || process.env.DASHBOARD_TOKEN || '';
 

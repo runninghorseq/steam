@@ -11,6 +11,9 @@
 //   set -a; . /opt/steam/.env; set +a        # TURSO_DATABASE_URL + TURSO_AUTH_TOKEN
 //   node sync_flags_to_turso.js [--dry-run]
 
+// Load .env so the CLI has TURSO_*/DASHBOARD_TOKEN/etc. without sourcing it.
+require('dotenv').config({ path: require('path').join(__dirname, '.env'), quiet: true });
+
 const path = require('path');
 const Database = require('better-sqlite3');
 const { createClient } = require('@libsql/client');

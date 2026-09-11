@@ -20,6 +20,9 @@
 //   node refresh_email_token.js -c 5            # concurrency (default 3)
 //   node refresh_email_token.js --dry-run       # show what would rotate, call nothing
 
+// Load .env so the CLI has TURSO_*/DASHBOARD_TOKEN/etc. without sourcing it.
+require('dotenv').config({ path: require('path').join(__dirname, '.env'), quiet: true });
+
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');

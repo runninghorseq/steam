@@ -34,6 +34,9 @@
 //   markGifted({ friend: 'mp753932' });                       // defaults to poe2ea + today
 //   syncFromDB();                                             // sync all today/poe2ea
 
+// Load .env so the CLI has DASHBOARD_TOKEN / STEAM_API_* without sourcing it.
+require('dotenv').config({ path: require('path').join(__dirname, '.env'), quiet: true });
+
 const fs = require('fs');
 const path = require('path');
 

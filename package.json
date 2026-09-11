@@ -17,6 +17,7 @@
     "@libsql/client": "^0.17.4",
     "better-sqlite3": "^12.10.0",
     "crypto-js": "^4.2.0",
+    "dotenv": "^17.4.2",
     "steam-user": "^5.0.0",
     "steamcommunity": "^3.50.0"
   },

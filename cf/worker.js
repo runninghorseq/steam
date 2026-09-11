@@ -74,6 +74,7 @@ function checkAuth(req, url, env) {
     // an account's status (e.g. mark sold after delivery) — nothing else.
     if (env.FEED_TOKEN && (tokenMatches(q, env.FEED_TOKEN) || tokenMatches(header, env.FEED_TOKEN))
         && (url.pathname === '/api/accounts/feed' || url.pathname === '/api/shop/claim'
+            || url.pathname === '/api/shop/gift-items'
             || /^\/api\/accounts\/\d{17}\/status$/.test(url.pathname))) return null;
     if (url.pathname.startsWith('/api/')) return json({ error: 'unauthorized' }, 401);
     return new Response(
@@ -121,7 +122,7 @@ const ACCOUNT_COLS = `
     a.steam_id, a.account_name, a.persona, a.country, a.email,
     a.wallet_currency, a.wallet_balance_cents, a.steam_level, a.steam_points,
     a.loan_id, a.skip_wallet, a.source, a.email_token_refreshed_at, a.scanned_at,
-    a.status, a.status_updated_at,
+    a.status, a.status_updated_at, a.note,
     (SELECT COUNT(*) FROM auth_tokens t WHERE lower(t.account_name) = lower(a.account_name)) AS has_token,
     (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id) AS friend_count,
     (SELECT COUNT(*) FROM sent_gifts s WHERE s.account_steam_id = a.steam_id) AS sent_gift_count,
@@ -188,11 +189,17 @@ async function accountDetail(env, steamID) {
     };
 }
 
+// summary counts scan whole tables (friends is ~27k) and it runs on EVERY
+// dashboard load, so cache it briefly per isolate. Counts are approximate stats;
+// a few seconds of staleness is fine and cuts the bulk of the read volume.
+let _summaryCache = null;
+const SUMMARY_TTL_MS = 20000;
 async function summary(env) {
+    if (_summaryCache && Date.now() - _summaryCache.t < SUMMARY_TTL_MS) return _summaryCache.v;
     const c = async (sql) => (await env.DB.prepare(sql).first()).c;
     const wallets = await rowsOf(env.DB.prepare(
         'SELECT wallet_currency AS currency, COUNT(*) AS accounts, SUM(wallet_balance_cents) AS cents FROM accounts WHERE wallet_balance_cents > 0 GROUP BY wallet_currency ORDER BY cents DESC'));
-    return {
+    const v = {
         accounts: await c('SELECT COUNT(*) c FROM accounts'),
         with_token: await c('SELECT COUNT(*) c FROM auth_tokens'),
         skip_wallet: await c('SELECT COUNT(*) c FROM accounts WHERE skip_wallet = 1'),
@@ -204,6 +211,8 @@ async function summary(env) {
         pending_gifts: await c('SELECT COUNT(*) c FROM pending_gifts'),
         wallets,
     };
+    _summaryCache = { t: Date.now(), v };
+    return v;
 }
 
 // --- gift API (ported from gift_api.js, async D1) ---------------------------
@@ -382,21 +391,23 @@ async function handleIngest(env, b) {
         }
         case 'saveGifts': {
             const gifts = b.gifts || [];
-            await run('DELETE FROM pending_gifts WHERE account_steam_id = ?', b.accountSteamID);
+            // Batch (one/few subrequests) instead of a run() per gift.
+            const stmts = [DB.prepare('DELETE FROM pending_gifts WHERE account_steam_id = ?').bind(b.accountSteamID)];
+            const pSql = 'INSERT OR REPLACE INTO pending_gifts (gift_id, account_steam_id, item_name, detail, sender_steam_id, sender_name, sent_at, status, store_url, scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+            const uSql = 'UPDATE friends SET gifted_at = ?, gifted_game = ?, updated_at = ? WHERE account_steam_id = ? AND friend_steam_id = ?';
             for (const g of gifts) {
-                await run('INSERT OR REPLACE INTO pending_gifts (gift_id, account_steam_id, item_name, detail, sender_steam_id, sender_name, sent_at, status, store_url, scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    g.gift_id, b.accountSteamID, g.item_name ?? null, g.detail ?? null, g.sender_steam_id ?? null, g.sender_name ?? null, g.sent_at ?? null, g.status ?? null, g.store_url ?? null, ts, ts, ts);
-                if (g.sender_steam_id) await run('UPDATE friends SET gifted_at = ?, gifted_game = ?, updated_at = ? WHERE account_steam_id = ? AND friend_steam_id = ?', ingestGiftedAt(g.sent_at), g.item_name ?? null, ts, b.accountSteamID, g.sender_steam_id);
+                stmts.push(DB.prepare(pSql).bind(g.gift_id, b.accountSteamID, g.item_name ?? null, g.detail ?? null, g.sender_steam_id ?? null, g.sender_name ?? null, g.sent_at ?? null, g.status ?? null, g.store_url ?? null, ts, ts, ts));
+                if (g.sender_steam_id) stmts.push(DB.prepare(uSql).bind(ingestGiftedAt(g.sent_at), g.item_name ?? null, ts, b.accountSteamID, g.sender_steam_id));
             }
+            await batchAll(stmts);
             return true;
         }
         case 'saveSentGifts': {
             const gifts = b.gifts || [];
-            await run('DELETE FROM sent_gifts WHERE account_steam_id = ?', b.accountSteamID);
-            for (const g of gifts) {
-                await run('INSERT OR REPLACE INTO sent_gifts (gift_id, account_steam_id, recipient_steam_id, recipient_name, item_name, detail, sent_at, status, store_url, scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    g.gift_id, b.accountSteamID, g.recipient_steam_id ?? null, g.recipient_name ?? null, g.item_name ?? null, g.detail ?? null, ingestGiftedAt(g.sent_at), g.status ?? null, g.store_url ?? null, ts, ts, ts);
-            }
+            const sSql = 'INSERT OR REPLACE INTO sent_gifts (gift_id, account_steam_id, recipient_steam_id, recipient_name, item_name, detail, sent_at, status, store_url, scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+            const stmts = [DB.prepare('DELETE FROM sent_gifts WHERE account_steam_id = ?').bind(b.accountSteamID)];
+            for (const g of gifts) stmts.push(DB.prepare(sSql).bind(g.gift_id, b.accountSteamID, g.recipient_steam_id ?? null, g.recipient_name ?? null, g.item_name ?? null, g.detail ?? null, ingestGiftedAt(g.sent_at), g.status ?? null, g.store_url ?? null, ts, ts, ts));
+            await batchAll(stmts);
             return true;
         }
         case 'reconcileSentGifts': {
@@ -404,11 +415,11 @@ async function handleIngest(env, b) {
             const live = new Set(liveGifts.map((g) => g.gift_id));
             const existing = (await all('SELECT gift_id FROM sent_gifts WHERE account_steam_id = ?', b.accountSteamID)).map((r) => r.gift_id);
             const deleted = existing.filter((id) => !live.has(id));
-            for (let i = 0; i < deleted.length; i += 500) { const c = deleted.slice(i, i + 500); await run(`DELETE FROM sent_gifts WHERE account_steam_id = ? AND gift_id IN (${c.map(() => '?').join(', ')})`, b.accountSteamID, ...c); }
-            for (const g of liveGifts) {
-                await run('INSERT OR REPLACE INTO sent_gifts (gift_id, account_steam_id, recipient_steam_id, recipient_name, item_name, detail, sent_at, status, store_url, scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                    g.gift_id, b.accountSteamID, g.recipient_steam_id ?? null, g.recipient_name ?? null, g.item_name ?? null, g.detail ?? null, ingestGiftedAt(g.sent_at), g.status ?? null, g.store_url ?? null, ts, ts, ts);
-            }
+            const sSql = 'INSERT OR REPLACE INTO sent_gifts (gift_id, account_steam_id, recipient_steam_id, recipient_name, item_name, detail, sent_at, status, store_url, scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+            const stmts = [];
+            for (let i = 0; i < deleted.length; i += 500) { const c = deleted.slice(i, i + 500); stmts.push(DB.prepare(`DELETE FROM sent_gifts WHERE account_steam_id = ? AND gift_id IN (${c.map(() => '?').join(', ')})`).bind(b.accountSteamID, ...c)); }
+            for (const g of liveGifts) stmts.push(DB.prepare(sSql).bind(g.gift_id, b.accountSteamID, g.recipient_steam_id ?? null, g.recipient_name ?? null, g.item_name ?? null, g.detail ?? null, ingestGiftedAt(g.sent_at), g.status ?? null, g.store_url ?? null, ts, ts, ts));
+            await batchAll(stmts);
             return { kept: liveGifts.length, deleted };
         }
         case 'saveGamePlaytime': {
@@ -541,6 +552,20 @@ async function handleApi(req, env, url, ctx) {
     if (method === 'DELETE' && m) return notOnWorker('Account deletion');
 
     // Bulk skip_wallet apply from a client-built filter (used by wallet_skip.js).
+    // Bulk-set a free-text note on accounts (used by the sent-gifts page).
+    if (method === 'POST' && p === '/api/accounts/note') {
+        const b = await body();
+        const ids = Array.isArray(b.steam_ids) ? b.steam_ids.map(String).filter(Boolean) : [];
+        const note = b.note != null && String(b.note).trim() !== '' ? String(b.note) : null;
+        if (!ids.length) return json({ error: 'steam_ids[] required' }, 400);
+        let updated = 0;
+        for (let i = 0; i < ids.length; i += 90) { // D1 caps bound params at 100/query
+            const c = ids.slice(i, i + 90);
+            updated += (await env.DB.prepare(`UPDATE accounts SET note = ?, updated_at = unixepoch() WHERE steam_id IN (${c.map(() => '?').join(', ')})`).bind(note, ...c).run()).meta.changes;
+        }
+        return json({ updated });
+    }
+
     if (method === 'POST' && p === '/api/accounts/skip-wallet-bulk') {
         const b = await body();
         const where = String(b.where || '').trim();
@@ -578,7 +603,46 @@ async function handleApi(req, env, url, ctx) {
         return json({ steam_id: m[1], status, pushed: !!env.STATUS_WEBHOOK_URL });
     }
 
-    // Sell N accounts to one order, atomically. The shop calls this at delivery.
+    // What an account must have to qualify for an offer. Built once and used by BOTH
+// the feed count and the claim: a shop that advertises 40 in stock and then finds
+// 7 claimable is worse than one that says 7.
+//
+//   app=<appid>          the account OWNS this app outright (license_apps)
+//   gift_item=<text>      the account RECEIVED a gift whose item_name contains
+//                         this text, e.g. "Path of Exile 2"
+//   gift_status=<status>  that gift is in this state; defaults to 'pending',
+//                         because a redeemed or declined gift is no longer the
+//                         thing being sold
+//
+// The two are different products, and the difference is easy to get backwards:
+// an account holding a PENDING PoE2 gift does NOT own PoE2 — license_apps has no
+// row for it — so filtering by app finds a different set entirely. Measured on
+// prod: app=2694490 gives 132 accounts, gift_item='Path of Exile 2' gives 15, and
+// they do not overlap.
+//
+// EXISTS rather than a join: an account holding several matching gifts (or owning
+// an app through several packages) would otherwise be counted once per row.
+function offerFilter(url) {
+    const sql = [];
+    const args = [];
+    const app = Number(url.searchParams.get('app'));
+    if (Number.isInteger(app) && app > 0) {
+        sql.push('EXISTS (SELECT 1 FROM license_apps l WHERE l.account_steam_id = accounts.steam_id AND l.app_id = ?)');
+        args.push(app);
+    }
+    const item = (url.searchParams.get('gift_item') || '').trim();
+    if (item) {
+        const status = (url.searchParams.get('gift_status') || 'pending').trim();
+        // LIKE with the wildcards in the BIND, never spliced into the SQL.
+        sql.push("EXISTS (SELECT 1 FROM sent_gifts g WHERE g.recipient_steam_id = accounts.steam_id AND g.item_name LIKE ?" +
+                 (status && status !== 'any' ? ' AND g.status = ?' : '') + ')');
+        args.push(`%${item}%`);
+        if (status && status !== 'any') args.push(status);
+    }
+    return { sql, args };
+}
+
+// Sell N accounts to one order, atomically. The shop calls this at delivery.
     //
     //   POST /api/shop/claim   { "order": "<token>", "count": 1 }
     //   -> { order, requested, delivered, short, accounts: [ {..., steam_password,
@@ -597,6 +661,30 @@ async function handleApi(req, env, url, ctx) {
     // Always answers 200 with what it managed to get; `short` says it could not
     // fill the order. Deciding what to do about that is the shop's business — it
     // knows whether the customer has paid.
+    // The gift items a shop can build a product around, each with how many
+    // available accounts hold one right now.
+    //
+    //   GET /api/shop/gift-items[?status=pending]
+    //   -> { items: [ { item_name, status, available } ] }
+    //
+    // Exists so the shop's admin can offer a LIST instead of a free-text box. A
+    // typed filter that matches nothing is indistinguishable from a product that
+    // is out of stock, and the typo is invisible from the shop side — it shows up
+    // only as a product nobody can buy.
+    if (method === 'GET' && p === '/api/shop/gift-items') {
+        const status = (url.searchParams.get('status') || 'pending').trim();
+        const any = !status || status === 'any';
+        const rows = await rowsOf(env.DB.prepare(
+            `SELECT g.item_name, g.status,
+                    COUNT(DISTINCT CASE WHEN a.status = 'available' THEN a.steam_id END) AS available
+               FROM sent_gifts g
+               LEFT JOIN accounts a ON a.steam_id = g.recipient_steam_id
+              ${any ? '' : 'WHERE g.status = ?'}
+              GROUP BY g.item_name, g.status
+              ORDER BY available DESC, g.item_name`
+        ).bind(...(any ? [] : [status])));
+        return json({ items: rows });
+    }
     if (method === 'POST' && p === '/api/shop/claim') {
         const b = await body();
         const order = typeof b.order === 'string' ? b.order.trim() : '';
@@ -616,9 +704,11 @@ async function handleApi(req, env, url, ctx) {
         if (need > 0) {
             // Over-fetch: under contention some of these will be taken between the
             // read and our write, and each loss costs one candidate, not the claim.
+            const f = offerFilter(url);
             const pool = await rowsOf(env.DB.prepare(
-                "SELECT steam_id FROM accounts WHERE status = 'available' AND sold_order IS NULL ORDER BY status_updated_at LIMIT ?"
-            ).bind(need * 3 + 5));
+                `SELECT steam_id FROM accounts WHERE status = 'available' AND sold_order IS NULL${
+                    f.sql.length ? ' AND ' + f.sql.join(' AND ') : ''} ORDER BY status_updated_at LIMIT ?`
+            ).bind(...f.args, need * 3 + 5));
 
             for (const cand of pool) {
                 if (need <= 0) break;
@@ -658,10 +748,22 @@ async function handleApi(req, env, url, ctx) {
         const cols = withCreds
             ? 'steam_id, account_name, steam_password, email, email_password, shared_secret, persona, country, wallet_currency, wallet_balance_cents, steam_level, status, status_updated_at'
             : 'steam_id, account_name, persona, country, wallet_currency, wallet_balance_cents, steam_level, status, status_updated_at';
-        const where = statuses.length ? `WHERE status IN (${statuses.map(() => '?').join(', ')})` : '';
+        const f = offerFilter(url);
+        const conds = [];
+        const args = [];
+        if (statuses.length) { conds.push(`status IN (${statuses.map(() => '?').join(', ')})`); args.push(...statuses); }
+        if (f.sql.length) { conds.push(...f.sql); args.push(...f.args); }
+        const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+
+        // ?count_only=1 answers the one question a shop asks on every page render.
+        if (url.searchParams.get('count_only') === '1') {
+            const row = await env.DB.prepare(`SELECT COUNT(*) AS c FROM accounts ${where}`).bind(...args).first();
+            return json({ count: Number(row?.c) || 0, statuses: STATUSES, count_only: true });
+        }
+
         const rows = await rowsOf(env.DB.prepare(
             `SELECT ${cols} FROM accounts ${where} ORDER BY status_updated_at DESC, account_name COLLATE NOCASE`
-        ).bind(...statuses));
+        ).bind(...args));
         if (withCreds && rows.length) {
             // One query for all sent gifts, grouped in JS — avoids a per-account
             // subrequest (Worker subrequest cap). Turso has no bound-param limit.
@@ -797,7 +899,7 @@ async function handleApi(req, env, url, ctx) {
                 .bind(it.pass || null, it.refresh_token, it.app_id || null, acc.steam_id));
             updated.push(acc.account_name || it.email);
         }
-        for (let i = 0; i < stmts.length; i += 50) await env.DB.batch(stmts.slice(i, i + 50)); // D1 batch cap
+        for (let i = 0; i < stmts.length; i += 500) await env.DB.batch(stmts.slice(i, i + 500)); // fewer subrequests (Turso has no batch/param cap)
         return json({ updated: updated.length, updated_names: updated, not_found: notFound, invalid });
     }
     if (method === 'POST' && p === '/api/email-tokens/refresh') return proxyToBox(req, env, url); // box calls Microsoft to rotate tokens

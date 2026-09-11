@@ -14,6 +14,11 @@
 //
 // Credentials are never exposed: auth_tokens is reported as a has_token boolean.
 
+// Load .env FIRST — before ./db and ./store read process.env (TURSO_*/WORKER_URL/
+// CF_*/DASHBOARD_TOKEN) at module load. dotenv never overrides a var already set
+// (e.g. by pm2), so an explicit env still wins; .env just fills the gaps.
+require('dotenv').config({ path: require('path').join(__dirname, '.env'), quiet: true });
+
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -427,7 +432,7 @@ const ACCOUNT_COLS = `
     a.steam_id, a.account_name, a.persona, a.country, a.email,
     a.wallet_currency, a.wallet_balance_cents, a.steam_level, a.steam_points,
     a.loan_id, a.skip_wallet, a.source, a.email_token_refreshed_at, a.scanned_at,
-    a.status, a.status_updated_at,
+    a.status, a.status_updated_at, a.note,
     (SELECT COUNT(*) FROM auth_tokens t WHERE lower(t.account_name) = lower(a.account_name)) AS has_token,
     (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id) AS friend_count,
     (SELECT COUNT(*) FROM sent_gifts s WHERE s.account_steam_id = a.steam_id) AS sent_gift_count,
@@ -847,6 +852,36 @@ async function handleAPI(req, res, url) {
         const account = db.prepare('SELECT steam_id, account_name, persona, country, status, status_updated_at FROM accounts WHERE steam_id = ?').get(m[1]);
         if (process.env.STATUS_WEBHOOK_URL) pushStatusWebhook(account); // best-effort, non-blocking
         return sendJSON(res, 200, { steam_id: m[1], status, pushed: !!process.env.STATUS_WEBHOOK_URL });
+    }
+
+    // Bulk skip-wallet by a client-built WHERE (wallet_skip.js + the dashboard
+    // panel). preview = commit:false. NOTE: prod hits the Worker's copy (Turso);
+    // this is for local dev.
+    if (method === 'POST' && p === '/api/accounts/skip-wallet-bulk') {
+        const b = await readBody(req);
+        const where = String(b.where || '').trim();
+        const params = Array.isArray(b.params) ? b.params : [];
+        const target = b.target ? 1 : 0;
+        if (!where) return sendJSON(res, 400, { error: 'where clause required' });
+        const cols = 'steam_id, account_name, wallet_currency, wallet_balance_cents, steam_level, loan_id, skip_wallet';
+        let rows;
+        try { rows = db.prepare(`SELECT ${cols} FROM accounts WHERE (${where}) AND skip_wallet != ? ORDER BY account_name`).all(...params, target); }
+        catch (e) { return sendJSON(res, 400, { error: `bad filter: ${e.message}` }); }
+        let changed = 0;
+        if (b.commit) changed = db.prepare(`UPDATE accounts SET skip_wallet = ?, updated_at = unixepoch() WHERE (${where}) AND skip_wallet != ?`).run(target, ...params, target).changes;
+        const totalFlagged = db.prepare('SELECT COUNT(*) c FROM accounts WHERE skip_wallet = 1').get().c;
+        return sendJSON(res, 200, { rows, changed, committed: !!b.commit, totalFlagged });
+    }
+
+    // Bulk-set a free-text note on accounts (used by the sent-gifts page).
+    if (method === 'POST' && p === '/api/accounts/note') {
+        const b = await readBody(req);
+        const ids = Array.isArray(b.steam_ids) ? b.steam_ids.map(String).filter(Boolean) : [];
+        const note = b.note != null && String(b.note).trim() !== '' ? String(b.note) : null;
+        if (!ids.length) return sendJSON(res, 400, { error: 'steam_ids[] required' });
+        const upd = db.prepare('UPDATE accounts SET note = ?, updated_at = unixepoch() WHERE steam_id = ?');
+        const updated = db.transaction(() => ids.reduce((n, id) => n + upd.run(note, id).changes, 0))();
+        return sendJSON(res, 200, { updated });
     }
 
     // Public feed for another repo: accounts + status (optionally ?status=filter).

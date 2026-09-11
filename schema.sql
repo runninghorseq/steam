@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS accounts (
                                             -- the dashboard flags it "due" after ~60 days.
     shared_secret         TEXT,             -- Steam Guard mobile-authenticator shared_secret (base64);
                                             -- generate the 2FA code with steam-totp at login time.
+    note                  TEXT,             -- Free-text note set from the dashboard.
     status                TEXT NOT NULL DEFAULT 'available', -- business status: available,
                                             -- renting, sold, reserved, disabled. Published via
                                             -- the /api/accounts/feed + status webhook.

@@ -1,3 +1,6 @@
+// Load .env so the CLI has TURSO_*/DASHBOARD_TOKEN/etc. without sourcing it.
+require('dotenv').config({ path: require('path').join(__dirname, '.env'), quiet: true });
+
 const fs = require('fs');
 const { scanAccount } = require('./single');
 

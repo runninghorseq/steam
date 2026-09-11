@@ -21,6 +21,9 @@
 //   node steam/update_friend_country_from_file.js --file=<path> --commit
 //   COUNTRY_FILE=<path> node steam/update_friend_country_from_file.js --commit
 
+// Load .env so the CLI has TURSO_*/DASHBOARD_TOKEN/etc. without sourcing it.
+require('dotenv').config({ path: require('path').join(__dirname, '.env'), quiet: true });
+
 const fs = require('fs');
 
 // The dashboard API owns the friends data now (remote is the source of truth).
@@ -81,8 +84,10 @@ async function apiPost(path, body) {
 //   .../acc_new_steam/20260606_1491_of_3k_outlook.txtresult.txt
 //   .../acc_new_steam/20260504_steam_4k_outlook.txt
 ///.  20260504_PTGO1774415483.txtresult.txt
+///. 20260621_2K_account.txtresult.txt
+
 const DEFAULT_FILE =
-    '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260317_DUCJ1774087767_190.txt.txt';
+    '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260621_2K_account.txtresult.txt';
 
 const args = process.argv.slice(2);
 const COMMIT = args.includes('--commit');

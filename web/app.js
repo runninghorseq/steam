@@ -131,6 +131,69 @@ function toolbar({ filters = [], placeholder = 'Search…', counts = null } = {}
     return bar;
 }
 
+// Bulk skip-wallet by filter — the dashboard port of wallet_skip.js. Builds the
+// same WHERE and calls /api/accounts/skip-wallet-bulk (preview = commit:false).
+function bulkSkipWalletPanel() {
+    const wrap = el('div', { style: 'margin:10px 0' });
+    const toggle = el('button', { className: 'chip' }, '⚙ Bulk skip-wallet by filter ▾');
+    const body = el('div', { style: 'border:1px solid var(--border); border-radius:8px; padding:12px; margin-top:6px; background:var(--panel)' });
+    body.hidden = true;
+    toggle.onclick = () => { body.hidden = !body.hidden; toggle.textContent = `⚙ Bulk skip-wallet by filter ${body.hidden ? '▾' : '▴'}`; };
+
+    const cbLabel = (text) => { const c = el('input', { type: 'checkbox' }); return { c, l: el('label', { style: 'display:inline-flex; gap:5px; align-items:center; font-size:12px; color:var(--muted); cursor:pointer; margin-right:14px' }, c, text) }; };
+    const level0 = cbLabel('level 0'), zero = cbLabel('wallet = 0'), noToken = cbLabel('no cached token');
+    const maxWallet = el('input', { type: 'number', step: '0.01', placeholder: 'max wallet', style: 'width:100px' });
+    const currency = el('input', { type: 'text', placeholder: 'currency (e.g. RUB)', style: 'width:140px; margin-left:8px' });
+    const namesIn = el('input', { type: 'text', placeholder: 'account names, comma-separated', style: 'width:100%; margin-top:8px' });
+    const whereIn = el('input', { type: 'text', placeholder: 'advanced: raw SQL WHERE (optional)', style: 'width:100%; margin-top:8px; font-family:var(--mono); font-size:12px' });
+    const results = el('div', { style: 'margin-top:10px; font-size:12px; max-height:240px; overflow:auto' });
+
+    const buildFilter = () => {
+        const clauses = [], params = [], desc = [];
+        const names = namesIn.value.split(',').map((s) => s.trim()).filter(Boolean);
+        if (names.length) { clauses.push(`lower(account_name) IN (${names.map(() => '?').join(', ')})`); params.push(...names.map((n) => n.toLowerCase())); desc.push(`names(${names.length})`); }
+        if (level0.c.checked) { clauses.push('(steam_level = 0 OR steam_level IS NULL)'); desc.push('level 0'); }
+        if (zero.c.checked) { clauses.push('(wallet_balance_cents = 0 OR wallet_balance_cents IS NULL)'); desc.push('wallet 0'); }
+        if (maxWallet.value.trim()) { const cents = Math.round(Number(maxWallet.value) * 100); if (Number.isFinite(cents)) { clauses.push('(wallet_balance_cents IS NULL OR wallet_balance_cents < ?)'); params.push(cents); desc.push(`wallet < ${maxWallet.value}`); } }
+        if (currency.value.trim()) { clauses.push('wallet_currency = ?'); params.push(currency.value.trim()); desc.push(`cur ${currency.value.trim()}`); }
+        if (noToken.c.checked) { clauses.push('(account_name IS NULL OR lower(account_name) NOT IN (SELECT lower(account_name) FROM auth_tokens))'); desc.push('no token'); }
+        if (whereIn.value.trim()) { clauses.push(`(${whereIn.value.trim()})`); desc.push('where'); }
+        return clauses.length ? { sql: clauses.join(' AND '), params, described: desc.join(' AND ') } : null;
+    };
+
+    const run = async (target, commit) => {
+        const f = buildFilter();
+        if (!f) { toast('Pick at least one filter first', true); return; }
+        if (commit && !confirm(`${target ? 'Flag skip_wallet on' : 'Unflag (track)'} accounts matching:\n\n${f.described}`)) return;
+        results.replaceChildren(el('div', { className: 'dim' }, 'Running…'));
+        try {
+            const r = await api('/api/accounts/skip-wallet-bulk', { method: 'POST', body: JSON.stringify({ where: f.sql, params: f.params, target, commit }) });
+            const verb = commit ? (target ? 'Flagged' : 'Unflagged') : `Would ${target ? 'flag' : 'unflag'}`;
+            const head = el('div', {}, el('b', {}, `${verb} ${r.rows.length} account(s)`), commit ? ` — total skip_wallet: ${r.totalFlagged}` : '');
+            const list = el('div', { style: 'font-family:var(--mono); margin-top:6px; color:var(--muted)' },
+                ...r.rows.slice(0, 300).map((x) => el('div', {}, `${x.account_name || x.steam_id}  ${x.wallet_currency || ''} ${x.wallet_balance_cents == null ? '-' : (x.wallet_balance_cents / 100).toFixed(2)}  lvl ${x.steam_level ?? '-'}${x.loan_id != null ? '  [loaned]' : ''}`)));
+            results.replaceChildren(head, list);
+            if (commit && r.rows.length) load(); // reflect the change in the table + counts
+        } catch (e) { results.replaceChildren(el('div', { className: 'empty' }, e.message)); }
+    };
+
+    const previewBtn = el('button', { className: 'act' }, 'Preview');
+    const flagBtn = el('button', { className: 'act danger' }, 'Flag (skip wallet)');
+    const unflagBtn = el('button', { className: 'act' }, 'Unflag (track)');
+    previewBtn.onclick = () => run(1, false);
+    flagBtn.onclick = () => run(1, true);
+    unflagBtn.onclick = () => run(0, true);
+
+    body.append(
+        el('div', { style: 'font-size:12px; color:var(--muted); margin-bottom:8px' }, 'Filters combine with AND. Preview first — it changes nothing.'),
+        el('div', {}, level0.l, zero.l, noToken.l, maxWallet, currency),
+        namesIn, whereIn,
+        el('div', { className: 'toolbar', style: 'margin-top:10px' }, previewBtn, flagBtn, unflagBtn),
+        results);
+    wrap.append(toggle, body);
+    return wrap;
+}
+
 function viewAccounts() {
     // Persona and Source are hidden here to keep the row compact — both are shown
     // in the account detail dialog.
@@ -233,7 +296,7 @@ function viewAccounts() {
     };
     bar.insertBefore(refreshBtn, bar.querySelector('.count'));
 
-    return [bar, progress, walletFilterBar(), rows, pager()];
+    return [bar, progress, walletFilterBar(), bulkSkipWalletPanel(), rows, pager()];
 }
 
 // Pagination controls for the accounts list. state.total / state.pages come from
@@ -346,8 +409,19 @@ function viewSent() {
     // Multi-select delete. Selection is view-local; it resets after a reload.
     const selected = new Set();
     const rows = state.rows;
+    // Distinct sender-account steam_ids behind the selected gift rows.
+    const selectedAccountIds = () => [...new Set([...selected]
+        .map((gid) => (rows.find((g) => g.gift_id === gid) || {}).account_steam_id)
+        .filter(Boolean))];
+
     const delBtn = el('button', { className: 'act danger', disabled: true }, 'Delete selected');
-    const paintDel = () => { delBtn.disabled = selected.size === 0; delBtn.textContent = selected.size ? `Delete selected (${selected.size})` : 'Delete selected'; };
+    const noteBtn = el('button', { className: 'act', disabled: true }, 'Add note to account');
+    const paintSel = () => {
+        delBtn.disabled = noteBtn.disabled = selected.size === 0;
+        delBtn.textContent = selected.size ? `Delete selected (${selected.size})` : 'Delete selected';
+        const n = selectedAccountIds().length;
+        noteBtn.textContent = n ? `Add note to account (${n})` : 'Add note to account';
+    };
     delBtn.onclick = async () => {
         if (!selected.size) return;
         if (!confirm(`Delete ${selected.size} sent-gift row(s) from the database?\n\nThis only edits the DB — a gift still pending on Steam reappears on the next sync.`)) return;
@@ -356,10 +430,24 @@ function viewSent() {
             const r = await api('/api/gifts/sent/delete', { method: 'POST', body: JSON.stringify({ gift_ids: [...selected] }) });
             toast(`Deleted ${r.deleted} sent gift(s)`);
             load();
-        } catch (e) { toast(e.message, true); paintDel(); }
+        } catch (e) { toast(e.message, true); paintSel(); }
+    };
+    // Set a note on the sender accounts of the selected gifts.
+    noteBtn.onclick = async () => {
+        const ids = selectedAccountIds();
+        if (!ids.length) return;
+        const note = prompt(`Note for ${ids.length} account(s) — leave blank to clear:`);
+        if (note === null) return; // cancelled
+        noteBtn.disabled = true;
+        try {
+            const r = await api('/api/accounts/note', { method: 'POST', body: JSON.stringify({ steam_ids: ids, note }) });
+            toast(`Note ${note.trim() ? 'set on' : 'cleared on'} ${r.updated} account(s)`);
+        } catch (e) { toast(e.message, true); }
+        paintSel();
     };
     bar.insertBefore(delBtn, bar.querySelector('.count'));
-    bar.insertBefore(refresh, delBtn);
+    bar.insertBefore(noteBtn, delBtn);
+    bar.insertBefore(refresh, noteBtn);
 
     const selectAll = el('input', { type: 'checkbox', title: 'Select all' });
     const boxes = [];
@@ -370,7 +458,7 @@ function viewSent() {
         cb.onchange = () => {
             cb.checked ? selected.add(g.gift_id) : selected.delete(g.gift_id);
             selectAll.checked = rows.length > 0 && selected.size === rows.length;
-            paintDel();
+            paintSel();
         };
         boxes.push(cb);
         return el('tr', {}, el('td', {}, cb),
@@ -385,7 +473,7 @@ function viewSent() {
         selected.clear();
         if (selectAll.checked) rows.forEach((g) => selected.add(g.gift_id));
         boxes.forEach((cb) => { cb.checked = selectAll.checked; });
-        paintDel();
+        paintSel();
     };
     const tbl = rows.length
         ? el('div', { className: 'table-wrap' }, el('table', {}, el('thead', {}, head), tbody))
@@ -865,7 +953,7 @@ async function openDetail(steamID) {
          ['Sent gifts', a.sent_gift_count], ['Pending gifts', a.pending_gift_count],
          ['Playtime', a.playtime_minutes ? `${(a.playtime_minutes / 60).toFixed(1)} h (${a.game_count} games)` : '—'],
          ['Last scan', dateTime(a.scanned_at)], ['Source', a.source], ['Token', a.has_token ? 'cached' : 'none'],
-         ['skip_wallet', a.skip_wallet ? 'yes' : 'no'], ['loan_id', a.loan_id ?? '—']
+         ['skip_wallet', a.skip_wallet ? 'yes' : 'no'], ['loan_id', a.loan_id ?? '—'], ['Note', a.note]
         ].map(([k, v]) => el('div', {}, el('span', {}, k), el('b', {}, v ?? '—')))
     );
 
