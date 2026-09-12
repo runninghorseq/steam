@@ -148,12 +148,19 @@ async function checkAuth(req, url, env) {
         if (PW) h.append('Set-Cookie', authCookie('dash_pw', PW));
         return new Response(null, { status: 302, headers: h });
     }
-    // Scoped FEED_TOKEN (given to the other repo) — READ the feed / UPDATE a status
-    // / shop endpoints only. Single secret by design (no password) so the consumer
-    // needs just the one token.
+    // Scoped FEED_TOKEN (given to the other repos: thuegame shop + the gifting
+    // bot) — the feed / shop endpoints, a status update, and the gifting flow the
+    // bot needs (list candidates, record success/failure, read /api/gifted).
+    // Single secret by design (no password) so the consumer needs just the one
+    // token; everything else (account credentials, jobs, deletes) stays behind
+    // the dashboard token+password.
     if (env.FEED_TOKEN && (tokenMatches(q.get('token'), env.FEED_TOKEN) || tokenMatches(hdrTok, env.FEED_TOKEN))
         && (url.pathname === '/api/accounts/feed' || url.pathname === '/api/shop/claim'
             || url.pathname === '/api/shop/gift-items'
+            || url.pathname === '/api/gifted'
+            || url.pathname === '/api/gift/candidates'
+            || url.pathname === '/api/gift/record-success'
+            || url.pathname === '/api/gift/record-failure'
             || /^\/api\/accounts\/\d{17}\/status$/.test(url.pathname))) return null;
     if (url.pathname.startsWith('/api/')) return json({ error: 'unauthorized' }, 401);
     return new Response(loginPage(!!PW), { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8' } });

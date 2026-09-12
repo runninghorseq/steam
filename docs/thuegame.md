@@ -14,8 +14,11 @@ accounts from this server, using a scoped `FEED_TOKEN`.
   (`Authorization: Bearer <FEED_TOKEN>` and `?token=<FEED_TOKEN>` also work.)
 
 The `FEED_TOKEN` is a **separate secret** from the dashboard login. It is **not**
-subject to the dashboard password — thuegame sends only this one token. It can
-reach **only** the four endpoints below; everything else returns `401`.
+subject to the dashboard password — thuegame sends only this one token. It is
+scoped: it reaches the shop/feed endpoints below (plus the gifting-bot endpoints
+`/api/gifted`, `/api/gift/candidates`, `/api/gift/record-success`,
+`/api/gift/record-failure`); everything else — account credentials outside the
+feed, jobs, deletes — returns `401`.
 
 > Set it once on the server: `npx wrangler secret put FEED_TOKEN`, then put the
 > same value in thuegame's environment. Rotate by repeating on both sides.
