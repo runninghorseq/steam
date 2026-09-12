@@ -78,7 +78,7 @@ function readProcessedRawLines(fileName) {
 // FILE_NAME = 'steam_accounts.txt'
 // FILE_NAME = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/smb/1k_outlook_2005.txtresult.txt'
 // FILE_NAME = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/smb/1491_of_3k_outlook.txtresult.txt'
-FILE_NAME = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260621_2K_account.txtresult.txt'
+FILE_NAME = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260703_WOKF1782869516.txtresult.txt'
 // FILE_NAME = '/Users/lequangha/fungaming/fungame/steam/2650_outlook.txt.missing.txtresult.txt'
 const allAccounts = parseSteamAccounts(FILE_NAME);
 console.log(`Loaded ${allAccounts.length} accounts from file`);

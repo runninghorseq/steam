@@ -610,7 +610,7 @@ function viewGifting() {
     const tokenedCb = el('input', { type: 'checkbox', checked: g.tokened });
     const panel = el('div', { className: 'empty' }, 'Loading…');
     // Sortable columns: [label, sortKey|null]
-    const COLS = [['Account', 'account'], ['CC', 'country'], ['Status', null], ['Wallet', 'wallet'], ['Friends', 'friends'], ['Giftable', 'giftable'], ['Available now', 'mature']];
+    const COLS = [['Account', 'account'], ['CC', 'country'], ['Status', null], ['Wallet', 'wallet'], ['Friends', 'friends'], ['Giftable', 'giftable'], ['Available now', 'mature'], ['In 7d', 'soon']];
 
     const refresh = async () => {
         panel.replaceChildren(el('div', { className: 'empty' }, 'Loading…'));
@@ -626,11 +626,11 @@ function viewGifting() {
         try {
             const d = await api(`/api/accounts/gift-capacity?${qs}`);
             const note = el('div', { className: 'dim', style: 'margin-bottom:8px; font-size:12px' },
-                `${d.count} account(s) under ${d.max} giftable friends${g.country ? ` · ${g.country}` : ''}${g.walletMin !== '' ? ` · wallet ≥ $${g.walletMin}` : ''}. "Available now" = un-gifted friends added ≥ ${d.days} days ago; the rest mature over the next ${d.days} days.`);
+                `${d.count} account(s) under ${d.max} giftable friends${g.country ? ` · ${g.country}` : ''}${g.walletMin !== '' ? ` · wallet ≥ $${g.walletMin}` : ''}. "Available now" = un-gifted friends past the ${d.days}-day cooldown; "In 7d" = giftable friends crossing the cooldown within the next 7 days.`);
             if (!d.accounts.length) { panel.replaceChildren(note, el('div', { className: 'empty' }, 'None match 🎉')); return; }
             const head = el('tr', {}, ...COLS.map(([label, key]) => {
                 const active = key && g.sort === key;
-                const th = el('th', { className: (key === 'wallet' || key === 'friends' || key === 'giftable' || key === 'mature' ? 'num ' : '') + (key ? '' : 'no-sort') },
+                const th = el('th', { className: (key === 'wallet' || key === 'friends' || key === 'giftable' || key === 'mature' || key === 'soon' ? 'num ' : '') + (key ? '' : 'no-sort') },
                     label, active ? el('span', { className: 'arrow' }, g.dir === 'asc' ? ' ▲' : ' ▼') : '');
                 if (key) th.onclick = () => { if (g.sort === key) g.dir = g.dir === 'asc' ? 'desc' : 'asc'; else { g.sort = key; g.dir = (key === 'account' || key === 'country') ? 'asc' : 'desc'; } refresh(); };
                 return th;
@@ -644,7 +644,8 @@ function viewGifting() {
                         el('td', { className: 'num' }, money(a.wallet_balance_cents, a.wallet_currency)),
                         el('td', { className: 'num dim' }, a.friend_count),
                         el('td', { className: 'num' }, a.giftable),
-                        el('td', { className: 'num' }, a.mature));
+                        el('td', { className: 'num' }, a.mature),
+                        el('td', { className: 'num dim' }, a.soon));
                     tr.onclick = (ev) => { if (!ev.target.closest('button')) openDetail(a.steam_id); };
                     return tr;
                 }))));

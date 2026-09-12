@@ -25,7 +25,7 @@
 // Load .env so the CLI has TURSO_*/DASHBOARD_TOKEN/etc. without sourcing it.
 require('dotenv').config({ path: require('path').join(__dirname, '.env'), quiet: true });
 
-const API_BASE = (process.env.STEAM_API_BASE || 'https://steam.fungamingvn.space').replace(/\/+$/, '');
+const API_BASE = (process.env.STEAM_API_BASE || 'https://steam-dashboard.fungamingsteam.workers.dev').replace(/\/+$/, '');
 const API_TOKEN = process.env.STEAM_API_TOKEN || process.env.DASHBOARD_TOKEN || '';
 const API_PASSWORD = process.env.STEAM_API_PASSWORD || process.env.DASHBOARD_PASSWORD || ''; // second secret when the server requires token + password
 

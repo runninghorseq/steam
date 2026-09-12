@@ -604,7 +604,7 @@ async function handleApi(req, env, url, ctx) {
         const country = (url.searchParams.get('country') || '').trim();
         const walletMinUsd = Number(url.searchParams.get('wallet_min'));
         const walletMinCents = Number.isFinite(walletMinUsd) && url.searchParams.get('wallet_min') !== '' ? Math.round(walletMinUsd * 100) : null;
-        const SORT = { giftable: 'giftable', mature: 'mature', friends: 'friend_count', wallet: 'wallet_balance_cents', account: 'account_name COLLATE NOCASE', country: 'country' };
+        const SORT = { giftable: 'giftable', mature: 'mature', soon: 'soon', friends: 'friend_count', wallet: 'wallet_balance_cents', account: 'account_name COLLATE NOCASE', country: 'country' };
         const sortCol = SORT[url.searchParams.get('sort')] || 'mature';
         const dir = String(url.searchParams.get('dir')).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
         // Giftable mirrors the bot's candidate filter: added, not gifted on this
@@ -612,7 +612,10 @@ async function handleApi(req, env, url, ctx) {
         // country still counts). Country is filterable via ?country=.
         const gCond = "f.gifted_at IS NULL AND f.added_at > 0 AND (f.country IS NULL OR f.country != 'VN')"
             + " AND NOT EXISTS (SELECT 1 FROM friends f2 WHERE (f2.friend_steam_id = f.friend_steam_id OR lower(f2.friend_name) = lower(f.friend_name)) AND f2.gifted_at IS NOT NULL AND f2.gifted_at > 0)";
-        const args = [cutoff];                     // mature subquery
+        // A friend matures at added_at + days; it matures within the next 7 days
+        // when added between `cutoff` (now-days) and `cutoff7` (7 days after that).
+        const cutoff7 = cutoff + 7 * 86400;
+        const args = [cutoff, cutoff, cutoff7];     // mature subquery + soon (in-7d) subquery
         const conds = ['giftable < ?']; args.push(max);
         if (url.searchParams.get('tokened') === '1') conds.push('has_token > 0');
         if (country) { conds.push('country = ?'); args.push(country); }
@@ -623,7 +626,8 @@ async function handleApi(req, env, url, ctx) {
                  (SELECT COUNT(*) FROM auth_tokens t WHERE lower(t.account_name) = lower(a.account_name)) AS has_token,
                  (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id) AS friend_count,
                  (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND ${gCond}) AS giftable,
-                 (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND ${gCond} AND f.added_at <= ?) AS mature
+                 (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND ${gCond} AND f.added_at <= ?) AS mature,
+                 (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND ${gCond} AND f.added_at > ? AND f.added_at <= ?) AS soon
                FROM accounts a WHERE a.steam_id NOT LIKE 'pending:%'
              ) WHERE ${conds.join(' AND ')} ORDER BY ${sortCol} ${dir}, giftable ASC LIMIT 2000`
         ).bind(...args));

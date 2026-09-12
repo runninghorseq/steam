@@ -30,7 +30,7 @@ const fs = require('fs');
 // This script parses the local file and POSTs the country mapping to the API,
 // which does the matching + writes. No local DB access.
 // Override base with STEAM_API_BASE; token via STEAM_API_TOKEN / DASHBOARD_TOKEN.
-const API_BASE = (process.env.STEAM_API_BASE || 'https://steam.fungamingvn.space').replace(/\/+$/, '');
+const API_BASE = (process.env.STEAM_API_BASE || 'https://steam-dashboard.fungamingsteam.workers.dev').replace(/\/+$/, '');
 const API_TOKEN = process.env.STEAM_API_TOKEN || process.env.DASHBOARD_TOKEN || '';
 const API_PASSWORD = process.env.STEAM_API_PASSWORD || process.env.DASHBOARD_PASSWORD || ''; // second secret when the server requires token + password
 
