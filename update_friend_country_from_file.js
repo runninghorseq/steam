@@ -29,10 +29,12 @@ const fs = require('fs');
 // The dashboard API owns the friends data now (remote is the source of truth).
 // This script parses the local file and POSTs the country mapping to the API,
 // which does the matching + writes. No local DB access.
-// Override base with STEAM_API_BASE; token via STEAM_API_TOKEN / DASHBOARD_TOKEN.
+// Uses the scoped FEED_TOKEN (single secret, no dashboard password): /api/friends/country
+// is in the FEED_TOKEN allow-list on the Worker. Override base with STEAM_API_BASE;
+// token via STEAM_FEED_TOKEN / FEED_TOKEN (falls back to STEAM_API_TOKEN / DASHBOARD_TOKEN).
 const API_BASE = (process.env.STEAM_API_BASE || 'https://steam-dashboard.fungamingsteam.workers.dev').replace(/\/+$/, '');
-const API_TOKEN = process.env.STEAM_API_TOKEN || process.env.DASHBOARD_TOKEN || '';
-const API_PASSWORD = process.env.STEAM_API_PASSWORD || process.env.DASHBOARD_PASSWORD || ''; // second secret when the server requires token + password
+const API_TOKEN = process.env.STEAM_FEED_TOKEN || process.env.FEED_TOKEN
+    || process.env.STEAM_API_TOKEN || process.env.DASHBOARD_TOKEN || '';
 
 async function apiPost(path, body) {
     const headers = {
@@ -42,14 +44,13 @@ async function apiPost(path, body) {
         'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
     };
     if (API_TOKEN) headers['X-Dashboard-Token'] = API_TOKEN;
-    if (API_PASSWORD) headers['X-Dashboard-Password'] = API_PASSWORD;
     let resp;
     try {
         resp = await fetch(API_BASE + path, { method: 'POST', headers, body: JSON.stringify(body) });
     } catch (e) {
         throw new Error(`API unreachable at ${API_BASE} (${e.message})`);
     }
-    if (resp.status === 401) throw new Error('API 401 unauthorized — set STEAM_API_TOKEN to match the server DASHBOARD_TOKEN');
+    if (resp.status === 401) throw new Error('API 401 unauthorized — set STEAM_FEED_TOKEN to match the FEED_TOKEN on the Worker');
     if (!resp.ok) throw new Error(`API ${path} -> HTTP ${resp.status}`);
     return resp.json();
 }
@@ -90,7 +91,7 @@ async function apiPost(path, body) {
 
 
 const DEFAULT_FILE =
-    '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260526_1k_outlook_2005.txtresult.txt';
+    '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260604_2650_outlook.txt.missing.txtresult.txt';
 
 const args = process.argv.slice(2);
 const COMMIT = args.includes('--commit');

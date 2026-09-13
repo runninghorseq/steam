@@ -161,6 +161,8 @@ async function checkAuth(req, url, env) {
             || url.pathname === '/api/gift/candidates'
             || url.pathname === '/api/gift/record-success'
             || url.pathname === '/api/gift/record-failure'
+            || url.pathname === '/api/friends/country'
+            || url.pathname === '/api/friends/mark-gifted'
             || /^\/api\/accounts\/\d{17}\/status$/.test(url.pathname))) return null;
     if (url.pathname.startsWith('/api/')) return json({ error: 'unauthorized' }, 401);
     return new Response(loginPage(!!PW), { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
@@ -552,6 +554,8 @@ async function handleIngest(env, b) {
             ]);
             return { tokened, skip, lent };
         }
+        case 'friendsRefreshSelection':
+            return all("SELECT a.steam_id, a.account_name FROM accounts a WHERE a.skip_wallet = 0 AND a.steam_id NOT LIKE 'pending:%' AND lower(a.account_name) IN (SELECT lower(account_name) FROM auth_tokens) ORDER BY a.account_name");
         default:
             throw new Error(`unknown ingest op: ${b.op}`);
     }
@@ -602,7 +606,7 @@ async function handleApi(req, env, url, ctx) {
 
     // Gift capacity: accounts running low on giftable friends, so you know which
     // to top up (add friends, wait `days` for the Steam gifting cooldown). Giftable
-    // = un-gifted, non-VN friend; mature = added >= `days` ago (available now).
+    // = un-gifted, non-VN friend; gifted = friends that already received any gift.
     // Returns accounts with giftable < `max` (default 50), lowest first.
     if (method === 'GET' && p === '/api/accounts/gift-capacity') {
         const max = Number(url.searchParams.get('max')) > 0 ? Number(url.searchParams.get('max')) : 50;
@@ -611,8 +615,8 @@ async function handleApi(req, env, url, ctx) {
         const country = (url.searchParams.get('country') || '').trim();
         const walletMinUsd = Number(url.searchParams.get('wallet_min'));
         const walletMinCents = Number.isFinite(walletMinUsd) && url.searchParams.get('wallet_min') !== '' ? Math.round(walletMinUsd * 100) : null;
-        const SORT = { giftable: 'giftable', mature: 'mature', soon: 'soon', friends: 'friend_count', wallet: 'wallet_balance_cents', account: 'account_name COLLATE NOCASE', country: 'country' };
-        const sortCol = SORT[url.searchParams.get('sort')] || 'mature';
+        const SORT = { giftable: 'giftable', gifted: 'gifted', soon: 'soon', friends: 'friend_count', wallet: 'wallet_balance_cents', account: 'account_name COLLATE NOCASE', country: 'country' };
+        const sortCol = SORT[url.searchParams.get('sort')] || 'gifted';
         const dir = String(url.searchParams.get('dir')).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
         // Giftable mirrors the bot's candidate filter: added, not gifted on this
         // account, not gifted on ANY account (by steamid or name), non-VN (unknown
@@ -622,7 +626,7 @@ async function handleApi(req, env, url, ctx) {
         // A friend matures at added_at + days; it matures within the next 7 days
         // when added between `cutoff` (now-days) and `cutoff7` (7 days after that).
         const cutoff7 = cutoff + 7 * 86400;
-        const args = [cutoff, cutoff, cutoff7];     // mature subquery + soon (in-7d) subquery
+        const args = [cutoff, cutoff7];             // soon (in-7d) subquery
         const conds = ['giftable < ?']; args.push(max);
         if (url.searchParams.get('tokened') === '1') conds.push('has_token > 0');
         if (country) { conds.push('country = ?'); args.push(country); }
@@ -633,12 +637,12 @@ async function handleApi(req, env, url, ctx) {
                  (SELECT COUNT(*) FROM auth_tokens t WHERE lower(t.account_name) = lower(a.account_name)) AS has_token,
                  (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id) AS friend_count,
                  (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND ${gCond}) AS giftable,
-                 (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND ${gCond} AND f.added_at <= ?) AS mature,
+                 (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND f.gifted_at IS NOT NULL AND f.gifted_at > 0) AS gifted,
                  (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND ${gCond} AND f.added_at > ? AND f.added_at <= ?) AS soon
                FROM accounts a WHERE a.steam_id NOT LIKE 'pending:%'
              ) WHERE ${conds.join(' AND ')} ORDER BY ${sortCol} ${dir}, giftable ASC LIMIT 2000`
         ).bind(...args));
-        return json({ max, days, country, wallet_min: walletMinCents != null ? walletMinCents / 100 : null, sort: url.searchParams.get('sort') || 'mature', dir: dir.toLowerCase(), count: rows.length, accounts: rows });
+        return json({ max, days, country, wallet_min: walletMinCents != null ? walletMinCents / 100 : null, sort: url.searchParams.get('sort') || 'gifted', dir: dir.toLowerCase(), count: rows.length, accounts: rows });
     }
 
     if (method === 'GET' && p === '/api/accounts') {
@@ -1030,6 +1034,7 @@ function offerFilter(url) {
     }
     if (method === 'POST' && p === '/api/email-tokens/refresh') return proxyToBox(req, env, url); // box calls Microsoft to rotate tokens
     if (method === 'POST' && p === '/api/wallets/refresh') return proxyToBox(req, env, url);
+    if (method === 'POST' && p === '/api/friends/refresh') return proxyToBox(req, env, url); // box runs reloadFriends
     // Cancel needs the box's live in-memory job (cooperative stop) — proxy it.
     if (method === 'POST' && /^\/api\/jobs\/[0-9a-f]{12}\/cancel$/.test(p)) return proxyToBox(req, env, url);
     // Job list + detail are read from the DB (persisted by the box), so history

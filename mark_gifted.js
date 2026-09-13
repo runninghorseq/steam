@@ -44,10 +44,13 @@ const path = require('path');
 // This script accesses NO database — every mode reads gifted recipients and
 // marks friends gifted through the API, so it works from any machine without a
 // local DB and always sees the live data. Point at the Worker (which reads/writes
-// Turso); override with STEAM_API_BASE. Token via STEAM_API_TOKEN / DASHBOARD_TOKEN.
+// Turso); override with STEAM_API_BASE. Auth is the scoped FEED_TOKEN (single
+// secret, no dashboard password): /api/gifted + /api/friends/mark-gifted are in
+// the FEED_TOKEN allow-list. Token via STEAM_FEED_TOKEN / FEED_TOKEN (falls back
+// to STEAM_API_TOKEN / DASHBOARD_TOKEN).
 const API_BASE = (process.env.STEAM_API_BASE || 'https://steam-dashboard.fungamingsteam.workers.dev').replace(/\/+$/, '');
-const API_TOKEN = process.env.STEAM_API_TOKEN || process.env.DASHBOARD_TOKEN || '89d1146bef759c827dfae6ebd840e1d4';
-const API_PASSWORD = process.env.STEAM_API_PASSWORD || process.env.DASHBOARD_PASSWORD || ''; // second secret, when the server requires token + password
+const API_TOKEN = process.env.STEAM_FEED_TOKEN || process.env.FEED_TOKEN
+    || process.env.STEAM_API_TOKEN || process.env.DASHBOARD_TOKEN || '';
 
 // Shared headers — Cloudflare fronts the domain and blocks non-browser signatures.
 function apiHeaders(extra = {}) {
@@ -57,7 +60,6 @@ function apiHeaders(extra = {}) {
         ...extra,
     };
     if (API_TOKEN) h['X-Dashboard-Token'] = API_TOKEN;
-    if (API_PASSWORD) h['X-Dashboard-Password'] = API_PASSWORD;
     return h;
 }
 async function apiPost(pathname, payload) {
@@ -67,7 +69,7 @@ async function apiPost(pathname, payload) {
     } catch (e) {
         throw new Error(`API unreachable at ${API_BASE} (${e.message})`);
     }
-    if (resp.status === 401) throw new Error('API 401 unauthorized — set STEAM_API_TOKEN to match the server DASHBOARD_TOKEN');
+    if (resp.status === 401) throw new Error('API 401 unauthorized — set STEAM_FEED_TOKEN to match the FEED_TOKEN on the Worker');
     if (!resp.ok) throw new Error(`API ${pathname} -> HTTP ${resp.status}`);
     return resp.json();
 }
@@ -79,7 +81,7 @@ async function fetchGifted(dayStart, dayEnd) {
     } catch (e) {
         throw new Error(`API unreachable at ${API_BASE} (${e.message})`);
     }
-    if (resp.status === 401) throw new Error('API 401 unauthorized — set STEAM_API_TOKEN to match the server DASHBOARD_TOKEN');
+    if (resp.status === 401) throw new Error('API 401 unauthorized — set STEAM_FEED_TOKEN to match the FEED_TOKEN on the Worker');
     if (!resp.ok) throw new Error(`API /api/gifted -> HTTP ${resp.status}`);
     return resp.json(); // { sent: [{friend_name, game}], gifted: [{friend_name, game}] }
 }

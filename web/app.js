@@ -296,6 +296,24 @@ function viewAccounts() {
     };
     bar.insertBefore(refreshBtn, bar.querySelector('.count'));
 
+    // Bulk friend-list sync for tracked (non-skip_wallet), tokened accounts.
+    const friendsBtn = el('button', { className: 'act' }, 'Sync friends');
+    friendsBtn.onclick = async () => {
+        if (!confirm('Sync friend lists for every tracked account (skip_wallet excluded, token required)?\n\nRuns via the Steam Web API — no logins.')) return;
+        friendsBtn.disabled = true;
+        try {
+            const job = await api('/api/friends/refresh', { method: 'POST', body: JSON.stringify({}) });
+            if (!job.id) { toast(job.message || 'No accounts to sync', true); friendsBtn.disabled = false; return; }
+            toast(`Syncing friends for ${job.total} account(s)…`);
+            watchJob(job.id, progress, (done) => {
+                toast(`Friends sync done: ${done.ok}/${done.total} ok, ${done.failed} failed`);
+                friendsBtn.disabled = false;
+                if (state.view === 'accounts') load();
+            });
+        } catch (err) { toast(err.message, true); friendsBtn.disabled = false; }
+    };
+    bar.insertBefore(friendsBtn, bar.querySelector('.count'));
+
     return [bar, progress, walletFilterBar(), bulkSkipWalletPanel(), rows, pager()];
 }
 

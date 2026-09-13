@@ -396,12 +396,21 @@ async function walletRefreshSelection() {
     return { tokened, skip, lent };
 }
 
+// Accounts to bulk-sync friends for: tracked (skip_wallet = 0), have a cached
+// token, and a real SteamID (reloadFriends fetches by SteamID via the Web API).
+const FRIENDS_SEL = "SELECT a.steam_id, a.account_name FROM accounts a WHERE a.skip_wallet = 0 AND a.steam_id NOT LIKE 'pending:%' AND lower(a.account_name) IN (SELECT lower(account_name) FROM auth_tokens) ORDER BY a.account_name";
+async function friendsRefreshSelection() {
+    if (USE_WORKER) return wcall('friendsRefreshSelection', {});
+    if (!USE_D1) return L().db.prepare(FRIENDS_SEL).all();
+    return d1n.d1all(FRIENDS_SEL, []);
+}
+
 module.exports = {
     USE_D1, USE_WORKER,
     getRefreshToken, saveRefreshToken, clearRefreshToken,
     saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts, saveGamePlaytime, reconcileSentGifts,
     addAccountStub, dropPendingStub, accountNames, tokenAccountNames, accountsWithSentGifts,
     accountNameBySteamID, accountBySteamID, accountByName, removeFriendRows,
-    walletRefreshSelection, friendSteamIDs, mailTokenAccounts, saveEmailRefreshToken, saveJob,
+    walletRefreshSelection, friendsRefreshSelection, friendSteamIDs, mailTokenAccounts, saveEmailRefreshToken, saveJob,
     parseGiftedAt,
 };

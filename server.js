@@ -343,6 +343,34 @@ async function runWalletJob(job, accounts, { mode, timeout, concurrency }) {
     jobLog(job, `${job.cancelled ? 'Stopped' : 'Done'}: ${job.ok}/${job.total} ok, ${job.failed} failed.`);
 }
 
+// Bulk friend-list sync via reloadFriends (Steam Web API by SteamID — no login),
+// so it can run several accounts in parallel.
+async function runFriendsJob(job, accounts, { concurrency }) {
+    job.status = 'running';
+    job.started_at = now();
+    jobLog(job, `Syncing friends for ${accounts.length} account(s), concurrency ${concurrency}.`);
+    let cursor = 0;
+    const worker = async () => {
+        while (cursor < accounts.length) {
+            if (job.cancelled) break;
+            const i = cursor++;
+            const acc = accounts[i];
+            jobLog(job, `>> [${i + 1}/${accounts.length}] ${acc.account_name || acc.steam_id}`);
+            let res;
+            try { res = await reloadFriends(acc.steam_id, { log: (...a) => jobLog(job, a.join(' ')) }); }
+            catch (err) { res = { ok: false, reason: err.message }; }
+            job.done++;
+            if (res?.ok) { job.ok++; jobLog(job, `   OK ${acc.account_name || acc.steam_id}: ${res.total} friends (${res.added} new, ${res.deleted?.length || 0} pruned)`); }
+            else { job.failed++; jobLog(job, `   FAIL ${acc.account_name || acc.steam_id}: ${res?.reason || 'unknown'}`); }
+            job.results.push({ username: acc.account_name, ok: !!res?.ok, reason: res?.reason || null });
+        }
+    };
+    await Promise.all(Array.from({ length: Math.max(1, concurrency) }, worker));
+    job.status = job.cancelled ? 'cancelled' : 'done';
+    job.finished_at = now();
+    jobLog(job, `${job.cancelled ? 'Stopped' : 'Done'}: ${job.ok}/${job.total} ok, ${job.failed} failed.`);
+}
+
 // Run a "remove friends" job (by name list or by friend_since date range).
 async function runRemoveFriendsJob(job, account, opts) {
     job.status = 'running';
@@ -680,8 +708,8 @@ async function handleAPI(req, res, url) {
         const country = (url.searchParams.get('country') || '').trim();
         const walletMinUsd = Number(url.searchParams.get('wallet_min'));
         const walletMinCents = Number.isFinite(walletMinUsd) && url.searchParams.get('wallet_min') !== '' ? Math.round(walletMinUsd * 100) : null;
-        const SORT = { giftable: 'giftable', mature: 'mature', soon: 'soon', friends: 'friend_count', wallet: 'wallet_balance_cents', account: 'account_name COLLATE NOCASE', country: 'country' };
-        const sortCol = SORT[url.searchParams.get('sort')] || 'mature';
+        const SORT = { giftable: 'giftable', gifted: 'gifted', soon: 'soon', friends: 'friend_count', wallet: 'wallet_balance_cents', account: 'account_name COLLATE NOCASE', country: 'country' };
+        const sortCol = SORT[url.searchParams.get('sort')] || 'gifted';
         const dir = String(url.searchParams.get('dir')).toLowerCase() === 'desc' ? 'DESC' : 'ASC';
         // Mirror the bot's candidate filter: added, un-gifted on this account AND on
         // ANY account (by steamid or name), non-VN (unknown country still counts).
@@ -701,7 +729,7 @@ async function handleAPI(req, res, url) {
                  (SELECT COUNT(*) FROM auth_tokens t WHERE lower(t.account_name) = lower(a.account_name)) AS has_token,
                  (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id) AS friend_count,
                  (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND ${gCond}) AS giftable,
-                 (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND ${gCond} AND f.added_at <= @cutoff) AS mature,
+                 (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND f.gifted_at IS NOT NULL AND f.gifted_at > 0) AS gifted,
                  (SELECT COUNT(*) FROM friends f WHERE f.account_steam_id = a.steam_id AND ${gCond} AND f.added_at > @cutoff AND f.added_at <= @cutoff7) AS soon
                FROM accounts a WHERE a.steam_id NOT LIKE 'pending:%'
              ) WHERE ${conds.join(' AND ')} ORDER BY ${sortCol} ${dir}, giftable ASC LIMIT 2000`
@@ -731,6 +759,17 @@ async function handleAPI(req, res, url) {
     }
 
     // Bulk-refresh wallet/level for all tokened accounts, minus skip_wallet + loaned.
+    // Bulk friend-list sync for tracked (skip_wallet=0), tokened accounts.
+    if (method === 'POST' && p === '/api/friends/refresh') {
+        const b = await readBody(req);
+        const concurrency = Number(b.concurrency) >= 1 ? Math.min(Number(b.concurrency), 8) : 5;
+        const accounts = await store.friendsRefreshSelection();
+        if (accounts.length === 0) return sendJSON(res, 200, { queued: 0, message: 'No tokened, non-skip_wallet accounts to sync friends for.' });
+        const job = makeJob('friends-bulk', { total: accounts.length, usernames: accounts.map((a) => a.account_name) });
+        enqueueSteamJob(job, () => runFriendsJob(job, accounts, { concurrency }));
+        return sendJSON(res, 202, jobView(job, false));
+    }
+
     if (method === 'POST' && p === '/api/wallets/refresh') {
         const b = await readBody(req);
         const mode = ['all', 'wallet', 'gifts'].includes(b.mode) ? b.mode : 'all';
