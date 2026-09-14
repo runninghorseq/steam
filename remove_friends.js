@@ -8,9 +8,10 @@
 // mirrors the account's friends into D1 so the dashboard reflects the change.
 //
 // removeFriends({ username }, {
-//   mode: 'name' | 'date',
+//   mode: 'name' | 'date' | 'gifted',
 //   names: [...],                 // mode 'name': persona names and/or 17-digit steamIDs
 //   dateFrom, dateTo,             // mode 'date': unix epoch bounds (inclusive) on friend_since
+//   games: [...],                 // mode 'gifted': gifted_game names to match (empty = any gift)
 //   excludeNames: [...],          // never remove these (case-insensitive) — mode 'date'
 //   dryRun: true,                 // select + report, remove nothing (DEFAULT true — destructive)
 //   delay: 500, timeout: 120000, log
@@ -55,7 +56,7 @@ async function fetchFriendNames(steamIDs) {
 
 function removeFriends(account, opts = {}) {
     const {
-        mode = 'name', names = [], dateFrom = null, dateTo = null,
+        mode = 'name', names = [], dateFrom = null, dateTo = null, games = [],
         excludeNames = [], dryRun = true, delay = 500, timeout = 120000, log = console.log,
     } = opts;
     const username = account && account.username;
@@ -66,12 +67,28 @@ function removeFriends(account, opts = {}) {
         const token = await store.getRefreshToken(row.account_name);
         if (!token) return resolve({ ok: false, reason: 'no cached refresh token — run a scan/login first' });
 
+        // mode=gifted targets are resolved up front from the friends table.
+        const giftedIDs = new Set(), giftedNames = new Set();
         if (mode === 'date') {
             if (!(Number.isFinite(dateFrom) && Number.isFinite(dateTo) && dateTo >= dateFrom)) {
                 return resolve({ ok: false, reason: 'mode=date needs numeric dateFrom <= dateTo (unix epoch)' });
             }
-        } else if (!names.length) {
-            return resolve({ ok: false, reason: 'mode=name needs at least one name/steamID' });
+        } else if (mode === 'gifted') {
+            let giftedRows = [];
+            try { giftedRows = await store.giftedFriends(row.steam_id, games); }
+            catch (e) { return resolve({ ok: false, reason: `gifted lookup failed: ${e.message}`, username: row.account_name }); }
+            giftedRows.forEach((r) => {
+                if (r.friend_steam_id) giftedIDs.add(String(r.friend_steam_id));
+                if (r.friend_name) giftedNames.add(String(r.friend_name).toLowerCase());
+            });
+            if (giftedIDs.size === 0 && giftedNames.size === 0) {
+                const why = (games && games.length) ? `no friends gifted "${games.join('", "')}"` : 'no gifted friends on this account';
+                return resolve({ ok: true, dryRun, matched: 0, removed: [], notFound: [], username: row.account_name, reason: why });
+            }
+        } else if (mode === 'name') {
+            if (!names.length) return resolve({ ok: false, reason: 'mode=name needs at least one name/steamID' });
+        } else {
+            return resolve({ ok: false, reason: `unknown mode '${mode}'` });
         }
 
         const tag = `[${row.account_name}]`;
@@ -128,6 +145,8 @@ function removeFriends(account, opts = {}) {
                         const byID = targetSet.has(id.toLowerCase());
                         if (byName) { matchedTargets.add(nm.toLowerCase()); hit = true; reason = 'name'; }
                         if (byID) { matchedTargets.add(id.toLowerCase()); hit = true; reason = 'steamID'; }
+                    } else if (mode === 'gifted') {
+                        if (giftedIDs.has(id) || giftedNames.has(nm.toLowerCase())) { hit = true; reason = 'gifted'; }
                     } else {
                         const since = sinceMap[id];
                         if (since != null && since >= dateFrom && since <= dateTo) { hit = true; reason = `since ${new Date(since * 1000).toISOString().slice(0, 10)}`; }

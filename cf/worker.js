@@ -163,6 +163,10 @@ async function checkAuth(req, url, env) {
             || url.pathname === '/api/gift/record-failure'
             || url.pathname === '/api/friends/country'
             || url.pathname === '/api/friends/mark-gifted'
+            // Owned-app list for the rental shop's catalogue. Safe for a scoped
+            // token: it returns app ids and names only — no credentials, unlike
+            // /api/accounts/<id>, which stays behind the dashboard secrets.
+            || /^\/api\/accounts\/\d{17}\/apps$/.test(url.pathname)
             || /^\/api\/accounts\/\d{17}\/status$/.test(url.pathname))) return null;
     if (url.pathname.startsWith('/api/')) return json({ error: 'unauthorized' }, 401);
     return new Response(loginPage(!!PW), { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
@@ -537,6 +541,12 @@ async function handleIngest(env, b) {
             return (await first('SELECT steam_id, account_name FROM accounts WHERE lower(account_name) = lower(?)', b.name)) || null;
         case 'friendSteamIDs':
             return (await all('SELECT friend_steam_id FROM friends WHERE account_steam_id = ?', b.accountSteamID)).map((r) => r.friend_steam_id);
+        case 'giftedFriends': {
+            const list = (b.games || []).map((g) => String(g).toLowerCase()).filter(Boolean);
+            const base = 'SELECT friend_steam_id, friend_name, gifted_game FROM friends WHERE account_steam_id = ? AND gifted_at IS NOT NULL AND gifted_at > 0';
+            const sql = list.length ? `${base} AND lower(gifted_game) IN (${list.map(() => '?').join(',')})` : base;
+            return list.length ? all(sql, b.accountSteamID, ...list) : all(sql, b.accountSteamID);
+        }
         case 'mailTokenAccounts': {
             const sel = "SELECT steam_id, account_name, email, email_refresh_token, email_client_id, email_token_refreshed_at FROM accounts WHERE email_refresh_token IS NOT NULL AND email_refresh_token != '' AND email_client_id IS NOT NULL AND email_client_id != ''";
             if (b.dueDays == null) return all(sel);
@@ -659,6 +669,29 @@ async function handleApi(req, env, url, ctx) {
     // openable so the admin can review it before scanning to resolve it.
     let m = /^\/api\/accounts\/(\d{17}|pending:[^/]+)$/.exec(p);
     if (method === 'GET' && m) { const d = await accountDetail(env, m[1]); return d ? json(d) : json({ error: 'account not found' }, 404); }
+
+    // Which apps an account OWNS, and nothing else about it.
+    //
+    // Added for the rental shop (thuegame). It reads the same license_apps rows the
+    // account detail page shows, but deliberately as its own endpoint:
+    //
+    //   * /api/accounts/<id> carries steam_password, email_password and the mailbox
+    //     refresh token. The shop only needs game names, so putting it behind the
+    //     FEED_TOKEN would hand a scoped consumer every credential on the account.
+    //     This route returns no secret at all, so the scoped token can have it.
+    //   * it exposes app_id, which the detail route's `app_names` string does not.
+    //     The shop keys its catalogue on app_id and had to fall back to matching on
+    //     names without it.
+    //
+    // Grouped by app rather than by package: one app can arrive through several
+    // packages, and "does this account own it" is the only question being asked.
+    m = /^\/api\/accounts\/(\d{17})\/apps$/.exec(p);
+    if (method === 'GET' && m) {
+        const rows = await rowsOf(env.DB.prepare(
+            'SELECT app_id, MAX(app_name) AS app_name FROM license_apps WHERE account_steam_id = ? GROUP BY app_id ORDER BY app_name'
+        ).bind(m[1]));
+        return json({ steam_id: m[1], count: rows.length, apps: rows });
+    }
 
     m = /^\/api\/accounts\/(\d{17})\/playtime$/.exec(p);
     if (method === 'GET' && m) {

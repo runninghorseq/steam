@@ -618,7 +618,7 @@ function viewPlaytime() {
 // Gifting capacity: accounts running low on giftable friends, so you know which
 // to top up (add friends, wait `days` for Steam's gifting cooldown). Self-fetches.
 function viewGifting() {
-    state.gift = state.gift || { max: 50, days: 30, tokened: true, country: '', walletMin: '', sort: 'mature', dir: 'asc' };
+    state.gift = state.gift || { max: 50, days: 30, tokened: true, country: '', walletMin: '', sort: 'gifted', dir: 'desc' };
     const g = state.gift;
     const wrap = el('div');
     const maxIn = el('input', { type: 'number', value: g.max, min: '1', style: 'width:66px' });
@@ -628,7 +628,7 @@ function viewGifting() {
     const tokenedCb = el('input', { type: 'checkbox', checked: g.tokened });
     const panel = el('div', { className: 'empty' }, 'Loading…');
     // Sortable columns: [label, sortKey|null]
-    const COLS = [['Account', 'account'], ['CC', 'country'], ['Status', null], ['Wallet', 'wallet'], ['Friends', 'friends'], ['Giftable', 'giftable'], ['Available now', 'mature'], ['In 7d', 'soon']];
+    const COLS = [['Account', 'account'], ['CC', 'country'], ['Status', null], ['Wallet', 'wallet'], ['Friends', 'friends'], ['Giftable', 'giftable'], ['Gifted', 'gifted'], ['In 7d', 'soon']];
 
     const refresh = async () => {
         panel.replaceChildren(el('div', { className: 'empty' }, 'Loading…'));
@@ -644,11 +644,11 @@ function viewGifting() {
         try {
             const d = await api(`/api/accounts/gift-capacity?${qs}`);
             const note = el('div', { className: 'dim', style: 'margin-bottom:8px; font-size:12px' },
-                `${d.count} account(s) under ${d.max} giftable friends${g.country ? ` · ${g.country}` : ''}${g.walletMin !== '' ? ` · wallet ≥ $${g.walletMin}` : ''}. "Available now" = un-gifted friends past the ${d.days}-day cooldown; "In 7d" = giftable friends crossing the cooldown within the next 7 days.`);
+                `${d.count} account(s) under ${d.max} giftable friends${g.country ? ` · ${g.country}` : ''}${g.walletMin !== '' ? ` · wallet ≥ $${g.walletMin}` : ''}. "Gifted" = friends who already received any gift; "In 7d" = giftable friends crossing the ${d.days}-day cooldown within the next 7 days.`);
             if (!d.accounts.length) { panel.replaceChildren(note, el('div', { className: 'empty' }, 'None match 🎉')); return; }
             const head = el('tr', {}, ...COLS.map(([label, key]) => {
                 const active = key && g.sort === key;
-                const th = el('th', { className: (key === 'wallet' || key === 'friends' || key === 'giftable' || key === 'mature' || key === 'soon' ? 'num ' : '') + (key ? '' : 'no-sort') },
+                const th = el('th', { className: (key === 'wallet' || key === 'friends' || key === 'giftable' || key === 'gifted' || key === 'soon' ? 'num ' : '') + (key ? '' : 'no-sort') },
                     label, active ? el('span', { className: 'arrow' }, g.dir === 'asc' ? ' ▲' : ' ▼') : '');
                 if (key) th.onclick = () => { if (g.sort === key) g.dir = g.dir === 'asc' ? 'desc' : 'asc'; else { g.sort = key; g.dir = (key === 'account' || key === 'country') ? 'asc' : 'desc'; } refresh(); };
                 return th;
@@ -662,7 +662,7 @@ function viewGifting() {
                         el('td', { className: 'num' }, money(a.wallet_balance_cents, a.wallet_currency)),
                         el('td', { className: 'num dim' }, a.friend_count),
                         el('td', { className: 'num' }, a.giftable),
-                        el('td', { className: 'num' }, a.mature),
+                        el('td', { className: 'num' }, a.gifted),
                         el('td', { className: 'num dim' }, a.soon));
                     tr.onclick = (ev) => { if (!ev.target.closest('button')) openDetail(a.steam_id); };
                     return tr;
@@ -677,7 +677,7 @@ function viewGifting() {
     wrap.append(
         el('div', { style: 'margin-bottom:8px; font-weight:600' }, 'Accounts low on giftable friends'),
         el('div', { className: 'toolbar', style: 'margin-bottom:12px; flex-wrap:wrap' },
-            lbl('Under'), maxIn, lbl('giftable · mature'), daysIn, lbl('d'),
+            lbl('Under'), maxIn, lbl('giftable · cooldown'), daysIn, lbl('d'),
             lbl('· country'), countryIn, lbl('· wallet ≥ $'), walletIn,
             el('label', { style: 'display:flex; gap:5px; align-items:center; font-size:12px; color:var(--muted)' }, tokenedCb, 'tokened only'), go),
         panel);
@@ -1203,14 +1203,20 @@ async function openDetail(steamID) {
     // Remove friends — by name/steamID list or by friend_since date range.
     // Dry-run is the DEFAULT (it deletes real Steam friends); a real removal asks
     // to confirm. Runs on the box (proxied) and streams into the same runLog.
-    const rfMode = el('select', {}, el('option', { value: 'name' }, 'by name / steamID'), el('option', { value: 'date' }, 'by date added'));
+    const rfMode = el('select', {}, el('option', { value: 'name' }, 'by name / steamID'), el('option', { value: 'date' }, 'by date added'), el('option', { value: 'gifted' }, 'by gifted game'));
     const rfNames = el('textarea', { placeholder: 'names or 17-digit steamIDs, one per line', rows: 2, style: 'min-width:240px; font-family:var(--mono); font-size:12px; padding:6px; background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px' });
+    const rfGames = el('textarea', { placeholder: 'gifted game name(s), one per line — blank = any gift', rows: 2, style: 'display:none; min-width:240px; font-family:var(--mono); font-size:12px; padding:6px; background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px' });
     const rfFrom = el('input', { type: 'date' });
     const rfTo = el('input', { type: 'date' });
     const rfDates = el('span', { style: 'display:none; align-items:center; gap:6px', className: 'dim' }, 'from ', rfFrom, ' to ', rfTo);
     const rfDry = el('input', { type: 'checkbox', checked: true });
     const rfBtn = el('button', { className: 'act' }, 'Preview');
-    rfMode.onchange = () => { const d = rfMode.value === 'date'; rfNames.style.display = d ? 'none' : ''; rfDates.style.display = d ? 'inline-flex' : 'none'; };
+    rfMode.onchange = () => {
+        const m = rfMode.value;
+        rfNames.style.display = m === 'name' ? '' : 'none';
+        rfDates.style.display = m === 'date' ? 'inline-flex' : 'none';
+        rfGames.style.display = m === 'gifted' ? '' : 'none';
+    };
     rfDry.onchange = () => { rfBtn.textContent = rfDry.checked ? 'Preview' : 'Remove'; rfBtn.classList.toggle('primary', !rfDry.checked); };
     rfBtn.onclick = async () => {
         const mode = rfMode.value;
@@ -1218,6 +1224,9 @@ async function openDetail(steamID) {
         if (mode === 'name') {
             payload.names = rfNames.value.split(/[\n,]+/).map((x) => x.trim()).filter(Boolean);
             if (!payload.names.length) { toast('Enter at least one name/steamID', true); return; }
+        } else if (mode === 'gifted') {
+            // Blank list = remove any friend who received a gift on this account.
+            payload.games = rfGames.value.split(/[\n,]+/).map((x) => x.trim()).filter(Boolean);
         } else {
             const f = Date.parse(rfFrom.value), t = Date.parse(rfTo.value + 'T23:59:59');
             if (!f || !t) { toast('Pick both dates', true); return; }
@@ -1238,7 +1247,7 @@ async function openDetail(steamID) {
     };
     const rfBar = el('div', { className: 'toolbar', style: 'margin-bottom:14px; flex-wrap:wrap' },
         el('span', { className: 'dim', style: 'font-size:12px' }, 'Remove friends:'),
-        rfMode, rfNames, rfDates,
+        rfMode, rfNames, rfGames, rfDates,
         el('label', { style: 'display:flex; gap:5px; align-items:center; font-size:12px; color:var(--muted)' }, rfDry, 'dry-run'),
         rfBtn);
 

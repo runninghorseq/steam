@@ -699,8 +699,8 @@ async function handleAPI(req, res, url) {
         });
     }
 
-    // Gift capacity: accounts low on giftable friends (un-gifted, non-VN); mature =
-    // added >= `days` ago. Lists accounts with giftable < `max` (default 50).
+    // Gift capacity: accounts low on giftable friends (un-gifted, non-VN); gifted =
+    // friends that already received any gift. Lists accounts with giftable < `max`.
     if (method === 'GET' && p === '/api/accounts/gift-capacity') {
         const max = Number(url.searchParams.get('max')) > 0 ? Number(url.searchParams.get('max')) : 50;
         const days = Number(url.searchParams.get('days')) >= 0 ? Number(url.searchParams.get('days')) : 30;
@@ -734,7 +734,7 @@ async function handleAPI(req, res, url) {
                FROM accounts a WHERE a.steam_id NOT LIKE 'pending:%'
              ) WHERE ${conds.join(' AND ')} ORDER BY ${sortCol} ${dir}, giftable ASC LIMIT 2000`
         ).all(params);
-        return sendJSON(res, 200, { max, days, country, wallet_min: walletMinCents != null ? walletMinCents / 100 : null, sort: url.searchParams.get('sort') || 'mature', dir: dir.toLowerCase(), count: rows.length, accounts: rows });
+        return sendJSON(res, 200, { max, days, country, wallet_min: walletMinCents != null ? walletMinCents / 100 : null, sort: url.searchParams.get('sort') || 'gifted', dir: dir.toLowerCase(), count: rows.length, accounts: rows });
     }
 
     if (method === 'GET' && p === '/api/accounts') {
@@ -879,11 +879,12 @@ async function handleAPI(req, res, url) {
         const b = await readBody(req);
         const acc = { account_name: await store.accountNameBySteamID(m[1]) };
         if (!acc || !acc.account_name) return sendJSON(res, 400, { error: 'account not found, or has no login name' });
-        const mode = b.mode === 'date' ? 'date' : 'name';
+        const mode = b.mode === 'date' ? 'date' : b.mode === 'gifted' ? 'gifted' : 'name';
         const names = Array.isArray(b.names) ? b.names : (b.names ? String(b.names).split(/[\n,]+/).map((x) => x.trim()).filter(Boolean) : []);
+        const games = Array.isArray(b.games) ? b.games : (b.games ? String(b.games).split(/[\n,]+/).map((x) => x.trim()).filter(Boolean) : []);
         const excludeNames = Array.isArray(b.excludeNames) ? b.excludeNames : [];
         const opts = {
-            mode, names, excludeNames,
+            mode, names, games, excludeNames,
             dateFrom: Number(b.dateFrom), dateTo: Number(b.dateTo),
             dryRun: b.dryRun !== false, // dry-run is the default; must send dryRun:false to actually remove
             timeout: 120000,

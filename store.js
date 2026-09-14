@@ -377,6 +377,19 @@ async function friendSteamIDs(accountSteamID) {
     return rows.map((r) => r.friend_steam_id);
 }
 
+// Friends of an account that have already received a gift (gifted_at set).
+// `games` is an optional list of gifted_game names (case-insensitive) to match;
+// an empty list means "any gift". Returns { friend_steam_id, friend_name, gifted_game }.
+async function giftedFriends(accountSteamID, games = []) {
+    const list = (games || []).map((g) => String(g).toLowerCase()).filter(Boolean);
+    if (USE_WORKER) return wcall('giftedFriends', { accountSteamID, games: list });
+    const base = 'SELECT friend_steam_id, friend_name, gifted_game FROM friends WHERE account_steam_id = ? AND gifted_at IS NOT NULL AND gifted_at > 0';
+    const sql = list.length ? `${base} AND lower(gifted_game) IN (${list.map(() => '?').join(',')})` : base;
+    const args = list.length ? [accountSteamID, ...list] : [accountSteamID];
+    if (!USE_D1) return L().db.prepare(sql).all(...args);
+    return d1n.d1all(sql, args);
+}
+
 // Selection for the bulk wallet refresh (mirrors update_wallet_level.js CLI):
 // every tokened account name, plus the sets to exclude (skip_wallet, loaned).
 async function walletRefreshSelection() {
@@ -411,6 +424,6 @@ module.exports = {
     saveAccount, saveFriends, saveLicenses, saveGifts, saveSentGifts, saveGamePlaytime, reconcileSentGifts,
     addAccountStub, dropPendingStub, accountNames, tokenAccountNames, accountsWithSentGifts,
     accountNameBySteamID, accountBySteamID, accountByName, removeFriendRows,
-    walletRefreshSelection, friendsRefreshSelection, friendSteamIDs, mailTokenAccounts, saveEmailRefreshToken, saveJob,
+    walletRefreshSelection, friendsRefreshSelection, friendSteamIDs, giftedFriends, mailTokenAccounts, saveEmailRefreshToken, saveJob,
     parseGiftedAt,
 };
