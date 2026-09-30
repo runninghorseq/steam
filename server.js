@@ -34,6 +34,7 @@ const { updateWalletLevel } = require('./update_wallet_level');
 const { reloadFriends } = require('./reload_friends');
 const { fetchPlaytime } = require('./steam_playtime');
 const { removeFriends } = require('./remove_friends');
+const { createInviteLink } = require('./create_invite');
 const { refreshMailTokens } = require('./refresh_email_token');
 const gift = require('./gift_api');
 const { removeAccount } = require('./remove_account');
@@ -290,6 +291,7 @@ async function runSingleAccountJob(job, account, action, opts) {
         else if (action === 'sync') res = await syncAccount(account, { timeout: opts.timeout, log });
         else if (action === 'friends') res = await reloadFriends(account.steam_id, { log });
         else if (action === 'playtime') res = await fetchPlaytime(account, { timeout: opts.timeout, log });
+        else if (action === 'invite') res = await createInviteLink(account, { timeout: opts.timeout, log, inviteLimit: opts.inviteLimit, inviteDuration: opts.inviteDuration });
         else res = { ok: false, reason: `unknown action '${action}'` };
     } catch (err) {
         res = { ok: false, reason: err.message };
@@ -306,7 +308,7 @@ async function runSingleAccountJob(job, account, action, opts) {
         job.failed = 1;
         jobLog(job, `   FAIL ${account.username}: ${res?.reason || 'unknown'}`);
     }
-    job.results.push({ username: account.username, ok: !!res?.ok, skipped: !!res?.skipped, reason: res?.reason || null, kept: res?.kept ?? null, deleted: res?.deleted || [] });
+    job.results.push({ username: account.username, ok: !!res?.ok, skipped: !!res?.skipped, reason: res?.reason || null, kept: res?.kept ?? null, deleted: res?.deleted || [], invite_link: res?.invite_link || null, invite_limit: res?.invite_limit ?? null, invite_duration: res?.invite_duration ?? null });
     job.status = 'done';
     job.finished_at = now();
     jobLog(job, 'Done.');
@@ -896,9 +898,9 @@ async function handleAPI(req, res, url) {
 
     m = /^\/api\/accounts\/(\d{17})\/run$/.exec(p);
     if (method === 'POST' && m) {
-        const { action, mode, timeout } = await readBody(req);
-        if (!['scan', 'wallet', 'sync', 'friends', 'playtime'].includes(action)) {
-            return sendJSON(res, 400, { error: "action must be one of: scan, wallet, sync, friends, playtime" });
+        const { action, mode, timeout, inviteLimit, inviteDuration } = await readBody(req);
+        if (!['scan', 'wallet', 'sync', 'friends', 'playtime', 'invite'].includes(action)) {
+            return sendJSON(res, 400, { error: "action must be one of: scan, wallet, sync, friends, playtime, invite" });
         }
         const acc = { account_name: await store.accountNameBySteamID(m[1]) };
         if (!acc || !acc.account_name) {
@@ -906,7 +908,7 @@ async function handleAPI(req, res, url) {
         }
         const to = Number(timeout) >= 10000 ? Number(timeout) : (action === 'sync' ? 120000 : 60000);
         const job = makeJob(action, { total: 1, usernames: [acc.account_name] });
-        enqueueSteamJob(job, () => runSingleAccountJob(job, { username: acc.account_name, steam_id: m[1] }, action, { timeout: to, mode }));
+        enqueueSteamJob(job, () => runSingleAccountJob(job, { username: acc.account_name, steam_id: m[1] }, action, { timeout: to, mode, inviteLimit, inviteDuration }));
         return sendJSON(res, 202, jobView(job, false));
     }
 
@@ -1184,6 +1186,7 @@ async function handleAPI(req, res, url) {
                 const stub = {
                     account_name: a.username, email: a.email, source: a.source,
                     shared_secret: a.shared_secret, steam_password: a.password, email_password: a.email_password,
+                    country: a.country,
                 };
                 if (idm) {
                     await store.addAccountStub({ steam_id: idm[1], ...stub });
@@ -1311,7 +1314,8 @@ async function handleAPI(req, res, url) {
             gameName: b.gameName || null,
             game: b.game || {},
             excludeNames: b.excludeNames || [],
-            priorityNames: b.priorityNames || []
+            priorityNames: b.priorityNames || [],
+            country: b.country || null
         });
         return sendJSON(res, 200, r);
     }

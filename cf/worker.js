@@ -323,11 +323,27 @@ function priorityOrderClause(alias, priorityNames) {
     return { sql: `CASE lower(${alias}.friend_name) ${whens} ELSE ${names.length} END, `, params: [] };
 }
 
-async function getOldestFriendNames(env, { account, limit, gameName, game, excludeNames, priorityNames }) {
+// Never gift a recipient whose OWN fleet account is no longer available — a
+// friend that maps to an accounts row (by steam_id, or by persona for rows with
+// no steam_id) whose status is anything but 'available' (sold/renting/reserved/
+// disabled) is dropped. Most friends are external and have no account row, so
+// this is a NOT EXISTS guard (not a JOIN), which leaves them untouched.
+function soldAccountClause(alias) {
+    return `  AND NOT EXISTS (    SELECT 1 FROM accounts ax     WHERE (ax.steam_id = ${alias}.friend_steam_id            OR lower(ax.persona) = lower(${alias}.friend_name))       AND ax.status IS NOT NULL AND ax.status != 'available'  ) `;
+}
+
+async function getOldestFriendNames(env, { account, limit, gameName, game, excludeNames, priorityNames, country }) {
     if (!(await env.DB.prepare('SELECT 1 FROM accounts WHERE account_name = ?').bind(account).first())) return { candidates: [], reason: `Account '${account}' does not exist` };
     const exN = excludeNamesClause('f', excludeNames);
     const prio = priorityOrderClause('f', priorityNames);
     const params = [account];
+    // country: pin to one country when given (its bound param sits right after
+    // `account`, matching where the clause appears in the WHERE below); else the
+    // default "anything but VN".
+    const countryClause = country
+        ? '  AND upper(f.country) = upper(?) '
+        : "  AND (f.country IS NULL OR f.country != 'VN') ";
+    if (country) params.push(country);
     let giftedClause;
     if (game.exclude_if_any_gifted) {
         giftedClause = '  AND NOT EXISTS (    SELECT 1 FROM friends f2     WHERE (f2.friend_steam_id = f.friend_steam_id            OR lower(f2.friend_name) = lower(f.friend_name))       AND f2.gifted_at IS NOT NULL AND f2.gifted_at > 0  ) ';
@@ -343,17 +359,24 @@ async function getOldestFriendNames(env, { account, limit, gameName, game, exclu
     params.push(...excludeSentItems, ...exN.params, ...prio.params, limit);
     const rows = await rowsOf(env.DB.prepare(
         'SELECT f.friend_name FROM accounts a JOIN friends f ON f.account_steam_id = a.steam_id WHERE a.account_name = ? '
-        + "  AND f.added_at IS NOT NULL AND f.added_at > 0   AND f.gifted_at IS NULL   AND (f.country IS NULL OR f.country != 'VN') "
+        + "  AND f.added_at IS NOT NULL AND f.added_at > 0   AND f.gifted_at IS NULL "
+        + countryClause
+        + soldAccountClause('f')
         + giftedClause + anySentClause + sentItemsClause + exN.sql + 'ORDER BY ' + prio.sql + 'f.added_at ASC LIMIT ?'
     ).bind(...params));
     return { candidates: rows.map((r) => ({ friend_name: r.friend_name, friend_steam_id: null })), reason: rows.length ? null : `Account '${account}' has no giftable friends left` };
 }
 
-async function getGame2Friends(env, { account, limit, game, excludeNames, priorityNames }) {
+async function getGame2Friends(env, { account, limit, game, excludeNames, priorityNames, country }) {
     if (!(await env.DB.prepare('SELECT 1 FROM accounts WHERE account_name = ?').bind(account).first())) return { candidates: [], reason: `Account '${account}' does not exist` };
     const priorItem = game.requires_prior_sent_item;
     const itemName = game.item_name;
     const params = [account];
+    // country param sits right after `account` (see the WHERE below); default "not VN".
+    const countryClause = country
+        ? '  AND upper(f.country) = upper(?) '
+        : "  AND (f.country IS NULL OR f.country != 'VN') ";
+    if (country) params.push(country);
     let priorClause = '';
     if (priorItem) { priorClause = '  AND EXISTS (    SELECT 1 FROM sent_gifts sg1     WHERE sg1.item_name = ?       AND (sg1.recipient_steam_id = f.friend_steam_id            OR lower(sg1.recipient_name) = lower(f.friend_name))  ) '; params.push(priorItem); }
     let excludeGiftedClause = '';
@@ -370,7 +393,9 @@ async function getGame2Friends(env, { account, limit, game, excludeNames, priori
     params.push(itemName, ...exN.params, ...prio.params, limit);
     const rows = await rowsOf(env.DB.prepare(
         'SELECT f.friend_name, f.friend_steam_id FROM accounts a JOIN friends f ON f.account_steam_id = a.steam_id WHERE a.account_name = ? '
-        + "  AND (f.country IS NULL OR f.country != 'VN')   AND f.friend_steam_id IS NOT NULL AND f.friend_steam_id != '' "
+        + countryClause
+        + "  AND f.friend_steam_id IS NOT NULL AND f.friend_steam_id != '' "
+        + soldAccountClause('f')
         + priorClause + excludeGiftedClause + excludeSentClause + excludeAnySentClause + excludeFailedClause
         + '  AND NOT EXISTS (    SELECT 1 FROM sent_gifts sg2     WHERE sg2.item_name = ?       AND (sg2.recipient_steam_id = f.friend_steam_id            OR lower(sg2.recipient_name) = lower(f.friend_name))  ) '
         + exN.sql + 'ORDER BY ' + prio.sql + 'f.gifted_at ASC LIMIT ?'
@@ -443,12 +468,14 @@ async function handleIngest(env, b) {
             }
             await run('INSERT INTO accounts (steam_id, account_name, persona, country, email, wallet_currency, wallet_balance_cents, steam_level, steam_points, source, steam_password, email_password, scanned_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(steam_id) DO UPDATE SET account_name = COALESCE(excluded.account_name, accounts.account_name), persona = COALESCE(excluded.persona, accounts.persona), country = COALESCE(excluded.country, accounts.country), email = COALESCE(excluded.email, accounts.email), wallet_currency = COALESCE(excluded.wallet_currency, accounts.wallet_currency), wallet_balance_cents = COALESCE(excluded.wallet_balance_cents, accounts.wallet_balance_cents), steam_level = COALESCE(excluded.steam_level, accounts.steam_level), steam_points = COALESCE(excluded.steam_points, accounts.steam_points), source = COALESCE(excluded.source, accounts.source), steam_password = COALESCE(excluded.steam_password, accounts.steam_password), email_password = COALESCE(excluded.email_password, accounts.email_password), scanned_at = excluded.scanned_at, updated_at = excluded.updated_at',
                 p.steam_id, p.account_name ?? null, p.persona ?? null, p.country ?? null, p.email ?? null, p.wallet_currency ?? null, p.wallet_balance_cents ?? null, p.steam_level ?? null, p.steam_points ?? null, p.source ?? null, p.steam_password ?? null, p.email_password ?? null, ts, ts, ts);
+            if (p.country && !String(p.steam_id).startsWith('pending:')) await run('UPDATE friends SET country = ?, updated_at = ? WHERE friend_steam_id = ? AND (country IS NULL OR country != ?)', p.country, ts, p.steam_id, p.country);
             return true;
         }
         case 'addAccountStub': {
             const p = b.partial || {};
-            await run('INSERT INTO accounts (steam_id, account_name, email, source, shared_secret, steam_password, email_password, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(steam_id) DO UPDATE SET account_name = COALESCE(excluded.account_name, accounts.account_name), email = COALESCE(excluded.email, accounts.email), source = COALESCE(excluded.source, accounts.source), shared_secret = COALESCE(excluded.shared_secret, accounts.shared_secret), steam_password = COALESCE(excluded.steam_password, accounts.steam_password), email_password = COALESCE(excluded.email_password, accounts.email_password), updated_at = excluded.updated_at',
-                p.steam_id, p.account_name ?? null, p.email ?? null, p.source ?? null, p.shared_secret ?? null, p.steam_password ?? null, p.email_password ?? null, ts, ts);
+            await run('INSERT INTO accounts (steam_id, account_name, email, source, shared_secret, steam_password, email_password, country, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(steam_id) DO UPDATE SET account_name = COALESCE(excluded.account_name, accounts.account_name), email = COALESCE(excluded.email, accounts.email), source = COALESCE(excluded.source, accounts.source), shared_secret = COALESCE(excluded.shared_secret, accounts.shared_secret), steam_password = COALESCE(excluded.steam_password, accounts.steam_password), email_password = COALESCE(excluded.email_password, accounts.email_password), country = COALESCE(excluded.country, accounts.country), updated_at = excluded.updated_at',
+                p.steam_id, p.account_name ?? null, p.email ?? null, p.source ?? null, p.shared_secret ?? null, p.steam_password ?? null, p.email_password ?? null, p.country ?? null, ts, ts);
+            if (p.country && !String(p.steam_id).startsWith('pending:')) await run('UPDATE friends SET country = ?, updated_at = ? WHERE friend_steam_id = ? AND (country IS NULL OR country != ?)', p.country, ts, p.steam_id, p.country);
             return true;
         }
         case 'dropPendingStub':
@@ -1100,7 +1127,7 @@ function offerFilter(url) {
     if (method === 'POST' && p === '/api/gift/candidates') {
         const b = await body();
         if (!b.account) return json({ error: 'account required' }, 400);
-        const opts = { account: b.account, limit: Number(b.limit) > 0 ? Number(b.limit) : 10, gameName: b.gameName || null, game: b.game || {}, excludeNames: b.excludeNames || [], priorityNames: b.priorityNames || [] };
+        const opts = { account: b.account, limit: Number(b.limit) > 0 ? Number(b.limit) : 10, gameName: b.gameName || null, game: b.game || {}, excludeNames: b.excludeNames || [], priorityNames: b.priorityNames || [], country: b.country || null };
         return json(b.usesSentGifts ? await getGame2Friends(env, opts) : await getOldestFriendNames(env, opts));
     }
     if (method === 'POST' && p === '/api/gift/record-success') {

@@ -191,6 +191,10 @@ function scanAccount(account, opts = {}) {
                 steam_password: account.password ?? null,
                 email: account.email ?? null,
                 email_password: account.email_password ?? null,
+                // Country from the upload line (a full scan later overwrites this with
+                // the real registered country from Steam). saveAccount also mirrors a
+                // non-null country onto friends rows that point at this SteamID.
+                country: account.country ?? null,
             };
 
             if (idOnly) {

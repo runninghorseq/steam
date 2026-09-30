@@ -241,6 +241,7 @@ function saveAccount(partial) {
         scanned_at: ts,
         now: ts
     });
+    syncFriendCountry(partial.steam_id, partial.country, ts);
     if (mirror.active) mirror.upsert('accounts', db.prepare('SELECT * FROM accounts WHERE steam_id = ?').get(partial.steam_id));
 }
 
@@ -270,8 +271,8 @@ function updateCredentials(steamID, fields) {
 // scanned_at — the row is a stub until a real scan fills wallet/level/etc. All
 // fields COALESCE, so importing an already-known account never erases scan data.
 const upsertAccountStub = db.prepare(`
-INSERT INTO accounts (steam_id, account_name, email, source, shared_secret, steam_password, email_password, created_at, updated_at)
-VALUES (@steam_id, @account_name, @email, @source, @shared_secret, @steam_password, @email_password, @now, @now)
+INSERT INTO accounts (steam_id, account_name, email, source, shared_secret, steam_password, email_password, country, created_at, updated_at)
+VALUES (@steam_id, @account_name, @email, @source, @shared_secret, @steam_password, @email_password, @country, @now, @now)
 ON CONFLICT(steam_id) DO UPDATE SET
     account_name = COALESCE(excluded.account_name, accounts.account_name),
     email = COALESCE(excluded.email, accounts.email),
@@ -279,11 +280,22 @@ ON CONFLICT(steam_id) DO UPDATE SET
     shared_secret = COALESCE(excluded.shared_secret, accounts.shared_secret),
     steam_password = COALESCE(excluded.steam_password, accounts.steam_password),
     email_password = COALESCE(excluded.email_password, accounts.email_password),
+    country = COALESCE(excluded.country, accounts.country),
     updated_at = excluded.updated_at
 `);
-function addAccountStub({ steam_id, account_name, email, source, shared_secret, steam_password, email_password }) {
+// Mirror an account's country onto every friends row that points at this SteamID
+// (the account is someone else's friend too). `!= @country` skips no-op writes.
+const syncFriendCountryStmt = db.prepare(
+    'UPDATE friends SET country = @country, updated_at = @now WHERE friend_steam_id = @steam_id AND (country IS NULL OR country != @country)'
+);
+function syncFriendCountry(steam_id, country, ts) {
+    if (!country || String(steam_id).startsWith('pending:')) return 0;
+    return syncFriendCountryStmt.run({ country, now: ts ?? now(), steam_id }).changes;
+}
+
+function addAccountStub({ steam_id, account_name, email, source, shared_secret, steam_password, email_password, country }) {
     const ts = now();
-    return upsertAccountStub.run({
+    const changes = upsertAccountStub.run({
         steam_id,
         account_name: account_name ?? null,
         email: email ?? null,
@@ -291,8 +303,11 @@ function addAccountStub({ steam_id, account_name, email, source, shared_secret, 
         shared_secret: shared_secret ?? null,
         steam_password: steam_password ?? null,
         email_password: email_password ?? null,
+        country: country ?? null,
         now: ts
     }).changes;
+    syncFriendCountry(steam_id, country, ts);
+    return changes;
 }
 
 const saveFriends = db.transaction((accountSteamID, friends) => {

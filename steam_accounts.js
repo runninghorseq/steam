@@ -1,6 +1,9 @@
 // steamName -> { steamID, quickInviteLink }
 const ACCOUNTS = {
     // historical
+    sna09699:        { steamID: '76561199748427498', quickInviteLink: 'https://s.team/p/jpnh-dvvp/TFPWHFPR' },
+    ps1hoz4:        { steamID: '76561198074581626', quickInviteLink: 'https://s.team/p/jtb-hdkp/HKGDQCRP' },
+    Di6Fa8Ih0Mj2:        { steamID: '76561198711454578', quickInviteLink: 'https://s.team/p/drrj-fqkd/RCQGRMJV' },
     dukminzs:                 { steamID: '76561198718519709', quickInviteLink: 'https://s.team/p/dtfd-bnnt/JCWVJDJV' },
     wisp9599:                 { steamID: '76561198865649130', quickInviteLink: 'https://s.team/p/fhwk-btvp/BDRHVRMM' },
     vuongquocnam19931:        { steamID: '76561199819583242', quickInviteLink: 'https://s.team/p/jvtd-vwbp/QDDMDHQT' },
@@ -159,12 +162,22 @@ const ACCOUNTS = {
     jodiehsheliani:           { steamID: '76561198708812426', quickInviteLink: 'https://s.team/p/drnt-vpmp/JHQDVMVF' },
     cleokceceliahf:           { steamID: '76561198707233347', quickInviteLink: 'https://s.team/p/drmh-tdgf/DHHPKGFW' },
     laurelkjohnniehl:         { steamID: '76561198707255173', quickInviteLink: 'https://s.team/p/drmj-dkmh/WGGTFJGM' },
+    //link poe
+
+    EltonaElsambenq:         { steamID: '76561198716258277', quickInviteLink: 'https://s.team/p/dtbw-mkvh/MWCTDGBW' },
+    ChandramLolahh:         { steamID: '76561198707449926', quickInviteLink: 'https://s.team/p/drmn-dbgj/BJPPHHRR' },
+    LaurelkJohnniehl:         { steamID: '76561198707255173', quickInviteLink: 'https://s.team/p/drmj-dkmh/KNMKJNJQ' },
+    BeatrizaCeciliatv:         { steamID: '76561198706527062', quickInviteLink: 'https://s.team/p/drkq-bqhj/TFTTTBWJ' },
+    JodiehSheliani:         { steamID: '76561198708812426', quickInviteLink: 'https://s.team/p/drnt-vpmp/HFCDPWPD' },
+    CleokCeceliahf:         { steamID: '76561198707233347', quickInviteLink: 'https://s.team/p/drmh-tdgf/KBQGMHGV' },
+
 
     //acc khach xicute
     climokynanxp:             { steamID: '76561199853275039', quickInviteLink: 'https://s.team/p/kbth-bknw/DPTWBGND' },
     purintardya4:             { steamID: '76561199851853777', quickInviteLink: 'https://s.team/p/kbqw-hktc/RPHCBQCC' },
     AlroblMararxc:            { steamID: '76561198696886397', quickInviteLink: 'https://s.team/p/dqvk-wbkt/DFCGWNTJ' },
     brynpriceobded:           { steamID: '76561198764978105', quickInviteLink: 'https://s.team/p/dwwj-vwqn/VCKVCFFH' },
+    ArsonchavTaytayph:           { steamID: '76561198703342505', quickInviteLink: 'https://s.team/p/drgp-kfpn/GMVJTHQC' },
 
 
 };

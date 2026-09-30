@@ -33,14 +33,38 @@ function priorityOrderClause(alias, priorityNames) {
     return { sql: `CASE lower(${alias}.friend_name) ${whens} ELSE ${names.length} END, `, params: [] };
 }
 
+// Never gift a recipient whose OWN fleet account is no longer available — a
+// friend that maps to an accounts row (by steam_id, or by persona for rows with
+// no steam_id) whose status is anything but 'available' (sold/renting/reserved/
+// disabled) is dropped. Most friends are external and have no account row, so
+// this is a NOT EXISTS guard (not a JOIN), which leaves them untouched.
+// Mirrors soldAccountClause in cf/worker.js (the deployed Worker).
+function soldAccountClause(alias) {
+    return (
+        `  AND NOT EXISTS (` +
+        `    SELECT 1 FROM accounts ax ` +
+        `    WHERE (ax.steam_id = ${alias}.friend_steam_id ` +
+        `           OR lower(ax.persona) = lower(${alias}.friend_name)) ` +
+        `      AND ax.status IS NOT NULL AND ax.status != 'available'` +
+        `  ) `
+    );
+}
+
 // --- game1 (friends-row tracked): oldest ungifted, non-VN friends -------------
-function getOldestFriendNames({ account, limit, gameName, game, excludeNames, priorityNames }) {
+function getOldestFriendNames({ account, limit, gameName, game, excludeNames, priorityNames, country }) {
     if (!accountSteamId.get(account)) {
         return { candidates: [], reason: `Account '${account}' does not exist` };
     }
     const exN = excludeNamesClause('f', excludeNames);
     const prio = priorityOrderClause('f', priorityNames);
     const params = [account];
+    // country: pin to one country when given (its bound param sits right after
+    // `account`, matching where the clause appears in the WHERE below); else the
+    // default "anything but VN".
+    const countryClause = country
+        ? '  AND upper(f.country) = upper(?) '
+        : "  AND (f.country IS NULL OR f.country != 'VN') ";
+    if (country) params.push(country);
 
     let giftedClause;
     if (game.exclude_if_any_gifted) {
@@ -94,7 +118,8 @@ function getOldestFriendNames({ account, limit, gameName, game, excludeNames, pr
         'WHERE a.account_name = ? ' +
         '  AND f.added_at IS NOT NULL AND f.added_at > 0 ' +
         '  AND f.gifted_at IS NULL ' +
-        "  AND (f.country IS NULL OR f.country != 'VN') " +
+        countryClause +
+        soldAccountClause('f') +
         giftedClause + anySentClause + sentItemsClause + exN.sql +
         'ORDER BY ' + prio.sql + 'f.added_at ASC LIMIT ?'
     ).all(...params);
@@ -106,13 +131,18 @@ function getOldestFriendNames({ account, limit, gameName, game, excludeNames, pr
 }
 
 // --- game2/game3/packs (sent_gifts tracked) -----------------------------------
-function getGame2Friends({ account, limit, game, excludeNames, priorityNames }) {
+function getGame2Friends({ account, limit, game, excludeNames, priorityNames, country }) {
     if (!accountSteamId.get(account)) {
         return { candidates: [], reason: `Account '${account}' does not exist` };
     }
     const priorItem = game.requires_prior_sent_item;
     const itemName = game.item_name;
     const params = [account];
+    // country param sits right after `account` (see the WHERE below); default "not VN".
+    const countryClause = country
+        ? '  AND upper(f.country) = upper(?) '
+        : "  AND (f.country IS NULL OR f.country != 'VN') ";
+    if (country) params.push(country);
 
     let priorClause = '';
     if (priorItem) {
@@ -179,8 +209,9 @@ function getGame2Friends({ account, limit, game, excludeNames, priorityNames }) 
         'SELECT f.friend_name, f.friend_steam_id ' +
         'FROM accounts a JOIN friends f ON f.account_steam_id = a.steam_id ' +
         'WHERE a.account_name = ? ' +
-        "  AND (f.country IS NULL OR f.country != 'VN') " +
+        countryClause +
         "  AND f.friend_steam_id IS NOT NULL AND f.friend_steam_id != '' " +
+        soldAccountClause('f') +
         priorClause + excludeGiftedClause + excludeSentClause + excludeAnySentClause + excludeFailedClause +
         '  AND NOT EXISTS (' +
         '    SELECT 1 FROM sent_gifts sg2 ' +

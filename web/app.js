@@ -1098,11 +1098,12 @@ async function openDetail(steamID) {
     const pane = el('div');
     const sections = {
         [`Friends (${d.friends.length})`]: () => table(
-            [{ label: 'Name' }, { label: 'SteamID' }, { label: 'Lvl', num: true }, { label: 'Added' }, { label: 'Gifted' }],
+            [{ label: 'Name' }, { label: 'SteamID' }, { label: 'CC' }, { label: 'Lvl', num: true }, { label: 'Added' }, { label: 'Gifted' }],
             d.friends,
             (f) => el('tr', {},
                 el('td', {}, f.friend_name || '—'),
                 el('td', { className: 'dim name' }, f.friend_steam_id),
+                el('td', { className: 'dim' }, f.country || '—'),
                 el('td', { className: 'num' }, f.friend_level ?? '—'),
                 el('td', { className: 'dim' }, `${date(f.added_at)} (${ago(f.added_at)})`),
                 el('td', { className: 'dim' }, f.gifted_game ? `${f.gifted_game} · ${date(f.gifted_at)}` : '—'))
@@ -1197,6 +1198,45 @@ async function openDetail(steamID) {
         mkRun('Sync friends', 'friends'),
         mkRun('Playtime', 'playtime'),
         mkRun('Sync sent gifts', 'sync'),
+        a.has_token ? '' : el('span', { className: 'tag notok' }, 'no token — needs a login')
+    );
+
+    // Quick invite link — logs in and creates a shareable "add me" link
+    // (steam-user createQuickInviteLink, MODE='create' in multi_friend.js). The
+    // returned link is shown in a read-only, copyable field rather than reopening
+    // the dialog, so it isn't lost.
+    const inviteOut = el('input', { readOnly: true, placeholder: 'invite link appears here', style: 'min-width:320px; font-family:var(--mono); font-size:12px; padding:6px; background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:6px; display:none' });
+    const inviteCopy = el('button', { className: 'act', style: 'display:none' }, 'Copy');
+    inviteCopy.onclick = async () => {
+        if (!inviteOut.value) return;
+        try { await navigator.clipboard.writeText(inviteOut.value); toast('Copied'); }
+        catch (_) { inviteOut.select(); document.execCommand('copy'); toast('Copied'); }
+    };
+    const inviteBtn = el('button', { className: 'act' }, 'Get invite link');
+    inviteBtn.onclick = async () => {
+        inviteBtn.disabled = true;
+        inviteOut.style.display = 'none'; inviteCopy.style.display = 'none'; inviteOut.value = '';
+        try {
+            const job = await api(`/api/accounts/${a.steam_id}/run`, { method: 'POST', body: JSON.stringify({ action: 'invite' }) });
+            toast(`Invite link: job ${job.id} started`);
+            watchJob(job.id, runLog, (done) => {
+                inviteBtn.disabled = false;
+                const r = (done.results || [])[0] || {};
+                if (done.ok && r.invite_link) {
+                    inviteOut.value = r.invite_link;
+                    inviteOut.style.display = ''; inviteCopy.style.display = '';
+                    toast('Invite link created');
+                } else if (r.skipped || done.guard_skipped) {
+                    toast('Invite: skipped (Steam Guard) — see log', true);
+                } else {
+                    toast('Invite: failed — see log', true);
+                }
+            });
+        } catch (err) { toast(err.message, true); inviteBtn.disabled = false; }
+    };
+    const inviteBar = el('div', { className: 'toolbar', style: 'margin-bottom:14px; flex-wrap:wrap' },
+        el('span', { className: 'dim', style: 'font-size:12px' }, 'Invite link:'),
+        inviteBtn, inviteOut, inviteCopy,
         a.has_token ? '' : el('span', { className: 'tag notok' }, 'no token — needs a login')
     );
 
@@ -1326,7 +1366,7 @@ async function openDetail(steamID) {
     const statusBar = el('div', { className: 'toolbar', style: 'margin-bottom:14px' },
         el('span', { className: 'dim', style: 'font-size:12px' }, 'Status:'), statusSel);
 
-    body.replaceChildren(runBar, rfBar, tokenBar, statusBar, runLog, kv, tabs, pane);
+    body.replaceChildren(runBar, inviteBar, rfBar, tokenBar, statusBar, runLog, kv, tabs, pane);
 }
 
 // --- loading ----------------------------------------------------------------

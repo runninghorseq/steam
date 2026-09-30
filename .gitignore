@@ -18,3 +18,8 @@ cf/steam_full.sql
 
 # local test DB from `npm run migrate:local`
 local-migrate.db*
+
+# local SQLite dumps at repo root (plaintext credentials — never commit).
+# migrations/*.sql stay tracked because this is anchored to the root.
+/*.sql
+/*.sql.bak

@@ -25,22 +25,36 @@ function extractEmailCreds(line) {
     return { email: fields[i], email_password: email_password || null };
 }
 
+const COUNTRY_RE = /^[A-Za-z]{2}$/;
+// Trailing 2-letter country code in the pipe layout
+// `STT|email|password|steam|pass_steam|country` (e.g. "...|FredaEloise03|AM").
+// Only trusted for pipe lines, so a 2-char password in a `user:pass` line is
+// never mistaken for a country.
+function extractCountry(line) {
+    if (!line || !line.includes('|')) return null;
+    const parts = line.split('|').map((f) => f.trim());
+    const last = parts[parts.length - 1];
+    return COUNTRY_RE.test(last) ? last.toUpperCase() : null;
+}
+
 function parseSteamAccounts(filePath) {
     const data = fs.readFileSync(filePath, 'utf8');
     const lines = data.split('\n').filter(l => l.trim());
     return lines.map((line, index) => {
         const shared_secret = extractSharedSecret(line);
         const { email, email_password } = extractEmailCreds(line);
+        const country = extractCountry(line);
         if (line.includes('|')) {
+            // STT|email|password(=email pass)|steam(=login name)|pass_steam|country
             const parts = line.split('|');
-            return { id: index + 1, username: parts[3], password: parts[4], email, email_password, shared_secret, rawLine: line };
+            return { id: index + 1, username: parts[3], password: parts[4], email, email_password, shared_secret, country, rawLine: line };
         }
         if (line.includes(':')) {
             const parts = line.split(':');
-            return { id: index + 1, username: parts[0], password: parts[1], email, email_password, shared_secret, rawLine: line };
+            return { id: index + 1, username: parts[0], password: parts[1], email, email_password, shared_secret, country, rawLine: line };
         }
         const parts = line.split('----');
-        return { id: index + 1, username: parts[0], password: parts[1], email, email_password, shared_secret, rawLine: line };
+        return { id: index + 1, username: parts[0], password: parts[1], email, email_password, shared_secret, country, rawLine: line };
     });
 }
 

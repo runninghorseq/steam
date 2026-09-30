@@ -4,7 +4,7 @@ const ACCOUNTS = require('./steam_accounts');
 
 // const run = Object.keys(ACCOUNTS);
 
-const run = ['josielola', 'pearlgrimshawnhtta']
+const run = ['pakim238', 'starlitobone6w']
 
 const STEAM_IDS = run.map(name => ACCOUNTS[name] && ACCOUNTS[name].steamID).filter(Boolean);
 

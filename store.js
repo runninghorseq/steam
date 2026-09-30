@@ -116,7 +116,16 @@ async function saveAccount(partial) {
         [p.steam_id, p.account_name ?? null, p.persona ?? null, p.country ?? null, p.email ?? null,
          p.wallet_currency ?? null, p.wallet_balance_cents ?? null, p.steam_level ?? null, p.steam_points ?? null,
          p.source ?? null, p.steam_password ?? null, p.email_password ?? null, ts, ts, ts]);
+    // The account is someone else's friend too — mirror its country onto every
+    // friends row that points at this SteamID so the gift filters see it.
+    if (p.country && !String(p.steam_id).startsWith('pending:')) {
+        await d1n.d1run(FRIEND_COUNTRY_SQL, [p.country, ts, p.steam_id, p.country]);
+    }
 }
+
+// UPDATE friends.country for every row whose friend_steam_id is this account.
+// The `!= ?` guard skips rows already at that country so we don't churn writes.
+const FRIEND_COUNTRY_SQL = 'UPDATE friends SET country = ?, updated_at = ? WHERE friend_steam_id = ? AND (country IS NULL OR country != ?)';
 
 // Insert a bare account row (no login) — account_name / email / source only, no
 // scanned_at. Used by "just add to DB". The steam_id may be a real SteamID64 or
@@ -126,7 +135,7 @@ async function addAccountStub(partial) {
     if (!USE_D1) return L().addAccountStub(partial);
     const ts = now();
     await d1n.d1run(
-        'INSERT INTO accounts (steam_id, account_name, email, source, shared_secret, steam_password, email_password, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) '
+        'INSERT INTO accounts (steam_id, account_name, email, source, shared_secret, steam_password, email_password, country, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) '
         + 'ON CONFLICT(steam_id) DO UPDATE SET '
         + '  account_name = COALESCE(excluded.account_name, accounts.account_name),'
         + '  email = COALESCE(excluded.email, accounts.email),'
@@ -134,8 +143,12 @@ async function addAccountStub(partial) {
         + '  shared_secret = COALESCE(excluded.shared_secret, accounts.shared_secret),'
         + '  steam_password = COALESCE(excluded.steam_password, accounts.steam_password),'
         + '  email_password = COALESCE(excluded.email_password, accounts.email_password),'
+        + '  country = COALESCE(excluded.country, accounts.country),'
         + '  updated_at = excluded.updated_at',
-        [partial.steam_id, partial.account_name ?? null, partial.email ?? null, partial.source ?? null, partial.shared_secret ?? null, partial.steam_password ?? null, partial.email_password ?? null, ts, ts]);
+        [partial.steam_id, partial.account_name ?? null, partial.email ?? null, partial.source ?? null, partial.shared_secret ?? null, partial.steam_password ?? null, partial.email_password ?? null, partial.country ?? null, ts, ts]);
+    if (partial.country && !String(partial.steam_id).startsWith('pending:')) {
+        await d1n.d1run(FRIEND_COUNTRY_SQL, [partial.country, ts, partial.steam_id, partial.country]);
+    }
 }
 
 // Remove the `pending:<username>` placeholder once the real SteamID row exists

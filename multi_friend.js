@@ -78,7 +78,7 @@ function readProcessedRawLines(fileName) {
 // FILE_NAME = 'steam_accounts.txt'
 // FILE_NAME = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/smb/1k_outlook_2005.txtresult.txt'
 // FILE_NAME = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/smb/1491_of_3k_outlook.txtresult.txt'
-FILE_NAME = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260703_WOKF1782869516.txtresult.txt'
+FILE_NAME = '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260806_4630_szx5HJs7Zt_half.txtresult.txt'
 // FILE_NAME = '/Users/lequangha/fungaming/fungame/steam/2650_outlook.txt.missing.txtresult.txt'
 const allAccounts = parseSteamAccounts(FILE_NAME);
 console.log(`Loaded ${allAccounts.length} accounts from file`);
@@ -91,13 +91,12 @@ const ACCOUNTS_BY_LOWER = new Map(Object.keys(ACCOUNTS).map(k => [k.toLowerCase(
 const lookupAccount = (id) => ACCOUNTS[id] || ACCOUNTS_BY_LOWER.get(String(id).toLowerCase());
 
 // Which steamIDs to add — each entry resolves to one invite link via QUICK_INVITE_LINKS
-// const run = ['cereocaiusmq', 'sisloraquevm']
-// const run = ['rymutghani', 'allisonxylonbnegk']
-const run = ['quilloasisludef', 'lilahxandrapwpfg']
-// const run = ['JosieLola3', 'pearlgrimshawnhtta']
-// const run = ['elianagallagherdivoc', 'zihankruszeq']
-// const run = ['lileekubatn', 'phamtuyenhien1']
-// const run = ['johnkismetawjxr']
+// const run = ['popr6',]
+const run = ['sna09699', 'Di6Fa8Ih0Mj2']
+// const run = ['', ]
+//
+// const run = ['ChandramLolahh', 'LaurelkJohnniehl', 'BeatrizaCeciliatv']
+// const run = ['JodiehSheliani', 'CleokCeceliahf', 'EltonaElsambenq']
 
 
 // const run = ['quilloasisludef', 'torrentleonardzcidb', 'ultranovathompsonxftuc'];
@@ -132,7 +131,10 @@ if (accounts.length === 0) {
 console.log('\n=== Account List with Invite Links ===');
 // Resolve `run` once, and say out loud which entries produced no link instead of
 // letting filter(Boolean) drop them silently.
-const runTargets = run.map(id => ({ id, link: (lookupAccount(id) || {}).quickInviteLink }));
+// Lowercase every run entry before resolving — steam_accounts.js can hold both a
+// lowercase and a mixed-case key for the same account (with different invite
+// links), so normalize to always match the lowercase entry.
+const runTargets = run.map(id => String(id).toLowerCase()).map(id => ({ id, link: (lookupAccount(id) || {}).quickInviteLink }));
 const unresolved = runTargets.filter(t => !t.link).map(t => t.id);
 if (unresolved.length) {
     console.log(`WARNING: no quick invite link for: ${unresolved.join(', ')} — check steam_accounts.js`);
@@ -229,13 +231,13 @@ clients.forEach((accClient, index) => {
         // accClient.setPersona(SteamUser.EPersonaState.Online);
 
         // Set persona name from email local-part, with a small delay so Steam is ready
-        const personaName = (account.email || '').split('@')[0];
-        if (personaName) {
-            setTimeout(() => {
-                accClient.setPersona(SteamUser.EPersonaState.Online, personaName);
-                console.log(`[${account.id}] Set persona name to: ${personaName}`);
-            }, 3000);
-        }
+        // const personaName = (account.email || '').split('@')[0];
+        // if (personaName) {
+        //     setTimeout(() => {
+        //         accClient.setPersona(SteamUser.EPersonaState.Online, personaName);
+        //         console.log(`[${account.id}] Set persona name to: ${personaName}`);
+        //     }, 3000);
+        // }
 
         // Auto add games to library
         const gameIds = [730, 440, 238960, 613100, 1590840, 599140, 3027490];
@@ -294,15 +296,15 @@ clients.forEach((accClient, index) => {
         }
     });
 
-    accClient.on('accountInfo', function(info) {
-        console.log(`\n[${account.id}] === Account Info ===`);
-        console.log(`[${account.id}] Name:`, info.name);
-        console.log(`[${account.id}] Profile URL:`, `https://steamcommunity.com/profiles/${accClient.steamID.getSteamID64()}`);
-
-        if (accClient.emailInfo && accClient.emailInfo.address) {
-            console.log(`[${account.id}] Email:`, accClient.emailInfo.address);
-        }
-    });
+    // accClient.on('accountInfo', function(info) {
+    //     console.log(`\n[${account.id}] === Account Info ===`);
+    //     console.log(`[${account.id}] Name:`, info.name);
+    //     console.log(`[${account.id}] Profile URL:`, `https://steamcommunity.com/profiles/${accClient.steamID.getSteamID64()}`);
+    //
+    //     if (accClient.emailInfo && accClient.emailInfo.address) {
+    //         console.log(`[${account.id}] Email:`, accClient.emailInfo.address);
+    //     }
+    // });
 
     accClient.on('friendsList', function() {
         const friendsCount = Object.keys(accClient.myFriends).length;
