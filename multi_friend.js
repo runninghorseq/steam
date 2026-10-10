@@ -92,7 +92,9 @@ const lookupAccount = (id) => ACCOUNTS[id] || ACCOUNTS_BY_LOWER.get(String(id).t
 
 // Which steamIDs to add — each entry resolves to one invite link via QUICK_INVITE_LINKS
 // const run = ['popr6',]
-const run = ['sna09699', 'Di6Fa8Ih0Mj2']
+const run = ['irenampottigw', 'caseysink']
+// const run = ['bPqXebjhSoz', 'edieserra']
+// const run = ['sna09699', 'Di6Fa8Ih0Mj2']
 // const run = ['', ]
 //
 // const run = ['ChandramLolahh', 'LaurelkJohnniehl', 'BeatrizaCeciliatv']

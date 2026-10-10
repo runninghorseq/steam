@@ -91,7 +91,7 @@ async function apiPost(path, body) {
 
 
 const DEFAULT_FILE =
-    '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20251017_steamcis_20.txt';
+    '/Users/lequangha/Library/Mobile Documents/com~apple~CloudDocs/fungaming/acc_new_steam/20260526_1k_outlook_2005.txtresult.txt';
 
 const args = process.argv.slice(2);
 const COMMIT = args.includes('--commit');
