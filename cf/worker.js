@@ -22,6 +22,22 @@ function json(body, status = 200, extraHeaders = {}) {
 }
 const notOnWorker = (what) => json({ error: `${what} runs on the server (Steam login) — not available on the Cloudflare Worker`, on_worker: false }, 501);
 
+// CORS for the public (Telegram Mini App) endpoints under /api/public/. The app
+// runs in a browser, so cross-origin fetch needs a preflight + these headers. The
+// SCAN_TOKEN travels in a header (no cookies), so Allow-Origin:* is safe.
+const CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-Scan-Token, X-Dashboard-Token, Authorization',
+    'Access-Control-Max-Age': '86400',
+};
+const corsPreflight = () => new Response(null, { status: 204, headers: CORS_HEADERS });
+function withCORS(res) {
+    const h = new Headers(res.headers);
+    for (const [k, v] of Object.entries(CORS_HEADERS)) h.set(k, v);
+    return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+}
+
 // Forward a request to the Debian box (steam.fungamingvn.space), which runs the
 // Steam-login jobs. The box shares the same DASHBOARD_TOKEN. Streams the box's
 // response straight back (works for JSON and the job-log polling).
@@ -120,6 +136,35 @@ ${needPw ? '<p><input name=password type=password placeholder="Password" autocom
 <p style="color:#888;font-size:13px;margin-top:14px">${needPw ? 'Both the password and the access token are required.' : ''}</p></body>`;
 }
 
+// --- Telegram Mini App auth -------------------------------------------------
+// Validate a Telegram WebApp initData string the way Telegram documents it, so a
+// Mini App authenticates per-user with a signed, time-limited payload instead of
+// a static secret baked into client JS. Uses the bot token as the signing key.
+async function hmacSha256(keyBytes, msgBytes) {
+    const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    return new Uint8Array(await crypto.subtle.sign('HMAC', key, msgBytes));
+}
+async function verifyTelegramInitData(initData, botToken, maxAgeSec = 3600) {
+    if (!initData || !botToken) return { ok: false, reason: 'missing initData or bot token' };
+    let params;
+    try { params = new URLSearchParams(initData); } catch { return { ok: false, reason: 'unparseable initData' }; }
+    const hash = params.get('hash');
+    if (!hash) return { ok: false, reason: 'no hash' };
+    params.delete('hash');
+    // data_check_string: remaining pairs as key=value, sorted, newline-joined.
+    const dataCheckString = [...params.entries()].map(([k, v]) => `${k}=${v}`).sort().join('\n');
+    const enc = new TextEncoder();
+    // secret_key = HMAC_SHA256(key="WebAppData", data=bot_token); then sign the string.
+    const secretKey = await hmacSha256(enc.encode('WebAppData'), enc.encode(botToken));
+    const digest = await hmacSha256(secretKey, enc.encode(dataCheckString));
+    const hex = [...digest].map((b) => b.toString(16).padStart(2, '0')).join('');
+    if (!tokenMatches(hex, hash)) return { ok: false, reason: 'bad signature' };
+    const authDate = Number(params.get('auth_date')) || 0;
+    if (maxAgeSec && authDate && (Date.now() / 1000 - authDate) > maxAgeSec) return { ok: false, reason: 'initData expired' };
+    let user = null; try { user = JSON.parse(params.get('user') || 'null'); } catch { /* optional */ }
+    return { ok: true, user };
+}
+
 async function checkAuth(req, url, env) {
     // A verified Cloudflare Access SSO session authenticates on its own.
     if (await verifyAccessJwt(req, env)) return null;
@@ -168,6 +213,17 @@ async function checkAuth(req, url, env) {
             // /api/accounts/<id>, which stays behind the dashboard secrets.
             || /^\/api\/accounts\/\d{17}\/apps$/.test(url.pathname)
             || /^\/api\/accounts\/\d{17}\/status$/.test(url.pathname))) return null;
+    // Public paths (Telegram Mini App): submit credentials to run a scan and poll
+    // THAT job only; nothing else. A valid Telegram initData signature (verified
+    // with the bot token) authorizes on its own — no static secret in browser JS,
+    // and it is per-user + time-limited. SCAN_TOKEN stays as a fallback for a
+    // non-browser caller (e.g. a bot backend) that can't produce initData.
+    if (url.pathname === '/api/public/scan' || /^\/api\/public\/jobs\/[0-9a-f]{12}$/.test(url.pathname)) {
+        const initData = req.headers.get('x-telegram-init-data') || '';
+        if (initData && env.TELEGRAM_BOT_TOKEN && (await verifyTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN)).ok) return null;
+        const scanTok = req.headers.get('x-scan-token') || hdrTok || q.get('token');
+        if (env.SCAN_TOKEN && tokenMatches(scanTok, env.SCAN_TOKEN)) return null;
+    }
     if (url.pathname.startsWith('/api/')) return json({ error: 'unauthorized' }, 401);
     return new Response(loginPage(!!PW), { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
@@ -1053,6 +1109,42 @@ function offerFilter(url) {
 
     if (method === 'POST' && p === '/api/scan') return proxyToBox(req, env, url);
 
+    // --- public scan (Telegram Mini App, scoped SCAN_TOKEN) ---------------------
+    // Submit Steam credentials and run a scan without the dashboard password. The
+    // box performs the actual Steam login; we just forward the same body /api/scan
+    // takes. Defaults to SteamID-only (fast). Returns the box's 202 job view; poll
+    // GET /api/public/jobs/<id> for progress. CORS is added by the fetch handler.
+    if (method === 'POST' && p === '/api/public/scan') {
+        const b = await body();
+        if (!b.text || !String(b.text).trim()) return json({ error: 'no credentials provided — send { "text": "user:pass" }' }, 400);
+        const payload = {
+            text: String(b.text),
+            // default: log in just to learn + save the SteamID (fast). addOnly skips login.
+            idOnly: b.addOnly ? false : (b.idOnly !== false),
+            addOnly: !!b.addOnly,
+            rescan: !!b.rescan,
+            source: b.source ? String(b.source).slice(0, 255) : 'telegram',
+            ...(Number(b.timeout) ? { timeout: Number(b.timeout) } : {}),
+        };
+        const boxUrl = new URL(url.toString()); boxUrl.pathname = '/api/scan'; boxUrl.search = '';
+        const boxReq = new Request(boxUrl.toString(), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
+        return proxyToBox(boxReq, env, boxUrl);
+    }
+    // Poll a job's status/log for the Mini App — read from the Turso jobs table the
+    // box persists to (no box round-trip). Mirrors GET /api/jobs/<id>.
+    m = /^\/api\/public\/jobs\/([0-9a-f]{12})$/.exec(p);
+    if (method === 'GET' && m) {
+        let row;
+        try { row = await env.DB.prepare('SELECT summary, lines FROM jobs WHERE id = ?').bind(m[1]).first(); }
+        catch (e) { return json({ error: 'job store unavailable' }, 500); }
+        if (!row) return json({ error: 'job not recorded yet — retry shortly' }, 404);
+        let view = {}; try { view = JSON.parse(row.summary); } catch { /* keep {} */ }
+        view.lines = row.lines ? row.lines.split('\n') : [];
+        return json(view);
+    }
+
     // Attach/refresh mailbox OAuth tokens on accounts that already exist, matching
     // each `mail|pass|refresh_token|app_id` line by its stored email. Handled HERE
     // against D1 (not proxied to the box): the dashboard's accounts live in D1, and
@@ -1259,11 +1351,18 @@ export default {
         // Route DB access to Turso (libSQL) when configured; otherwise the D1 binding.
         if (env.TURSO_DATABASE_URL) env.DB = tursoDB(env);
         const url = new URL(req.url);
+        // Public (Telegram Mini App) endpoints are CORS-enabled: answer the browser
+        // preflight before auth, and tag every response (incl. 401s) with the headers.
+        const isPublic = url.pathname.startsWith('/api/public/');
+        if (isPublic && req.method === 'OPTIONS') return corsPreflight();
         const authRes = await checkAuth(req, url, env);
-        if (authRes) return authRes;
+        if (authRes) return isPublic ? withCORS(authRes) : authRes;
         if (url.pathname.startsWith('/api/')) {
-            try { return maybeSetCookie(req, url, env, await handleApi(req, env, url, ctx)); }
-            catch (err) { return json({ error: err.message }, 500); }
+            try {
+                const res = maybeSetCookie(req, url, env, await handleApi(req, env, url, ctx));
+                return isPublic ? withCORS(res) : res;
+            }
+            catch (err) { const e = json({ error: err.message }, 500); return isPublic ? withCORS(e) : e; }
         }
         return env.ASSETS.fetch(req);
     },
