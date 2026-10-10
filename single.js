@@ -185,16 +185,18 @@ function scanAccount(account, opts = {}) {
             // wallet, friends, licenses, gifts, or the community-page fetch.
             // Credentials carried by the upload line — persisted on every scan so a
             // scanned account keeps its steam/email passwords (and mailbox email).
+            // NOTE: the upload line's country is deliberately NOT persisted here. A
+            // full scan writes the real registered country via getUserCountry below
+            // (and add-only stores the line value), so passing it on an id-only scan
+            // would let an unverified value overwrite a previously verified country
+            // (the upsert's COALESCE lets any non-null value win). add-only + full
+            // scan still capture + mirror country to friends rows.
             const lineCreds = {
                 account_name: account.username,
                 source: account.source ?? null,
                 steam_password: account.password ?? null,
                 email: account.email ?? null,
                 email_password: account.email_password ?? null,
-                // Country from the upload line (a full scan later overwrites this with
-                // the real registered country from Steam). saveAccount also mirrors a
-                // non-null country onto friends rows that point at this SteamID.
-                country: account.country ?? null,
             };
 
             if (idOnly) {

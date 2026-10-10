@@ -88,6 +88,7 @@ async function clearRefreshToken(accountName) {
 // --- accounts ---------------------------------------------------------------
 
 async function saveAccount(partial) {
+    partial = normalizeCountry(partial);
     if (USE_WORKER) return wcall('saveAccount', { partial });
     if (!USE_D1) return L().saveAccount(partial);
     const p = { ...partial };
@@ -127,10 +128,22 @@ async function saveAccount(partial) {
 // The `!= ?` guard skips rows already at that country so we don't churn writes.
 const FRIEND_COUNTRY_SQL = 'UPDATE friends SET country = ?, updated_at = ? WHERE friend_steam_id = ? AND (country IS NULL OR country != ?)';
 
+// Country codes are compared case-sensitively against 'VN' in the gift filters, so
+// store them trimmed + uppercase. A stray lowercase "vn" would otherwise be mirrored
+// to friends.country and still pass the (country != 'VN') giftable check.
+function normalizeCountry(partial) {
+    if (partial && partial.country != null) {
+        const c = String(partial.country).trim().toUpperCase();
+        return { ...partial, country: c || null };
+    }
+    return partial;
+}
+
 // Insert a bare account row (no login) — account_name / email / source only, no
 // scanned_at. Used by "just add to DB". The steam_id may be a real SteamID64 or
 // a `pending:<username>` placeholder for accounts whose id isn't known yet.
 async function addAccountStub(partial) {
+    partial = normalizeCountry(partial);
     if (USE_WORKER) return wcall('addAccountStub', { partial });
     if (!USE_D1) return L().addAccountStub(partial);
     const ts = now();
