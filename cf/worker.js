@@ -168,6 +168,9 @@ async function verifyTelegramInitData(initData, botToken, maxAgeSec = 3600) {
 async function checkAuth(req, url, env) {
     // A verified Cloudflare Access SSO session authenticates on its own.
     if (await verifyAccessJwt(req, env)) return null;
+    // The Telegram Mini App page is public (holds no secrets): Telegram loads it in
+    // a browser, and its API calls authenticate per-request via initData/SCAN_TOKEN.
+    if (req.method === 'GET' && url.pathname === '/telegram.html') return null;
     const TOKEN = env.DASHBOARD_TOKEN || '';
     if (!TOKEN) return null;
     // Two-secret mode: when DASHBOARD_PASSWORD is set, BOTH the token AND the

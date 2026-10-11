@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Steam Scan</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #17212b);
+    --sec: var(--tg-theme-secondary-bg-color, #232e3c);
+    --text: var(--tg-theme-text-color, #f5f5f5);
+    --hint: var(--tg-theme-hint-color, #90a4b8);
+    --link: var(--tg-theme-link-color, #6ab3f3);
+    --btn: var(--tg-theme-button-color, #3390ec);
+    --btn-text: var(--tg-theme-button-text-color, #ffffff);
+    --ok: #4bb34b;
+    --err: #e25b5b;
+    --warn: #e8a33d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px;
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+  }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  label { display: block; font-size: 13px; color: var(--hint); margin: 12px 0 4px; }
+  textarea, input[type=text] {
+    width: 100%; padding: 10px; border-radius: 10px; border: 1px solid transparent;
+    background: var(--sec); color: var(--text); font: inherit; resize: vertical;
+  }
+  textarea:focus, input:focus { outline: none; border-color: var(--btn); }
+  textarea { min-height: 72px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+  .row { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+  .row label { margin: 0; color: var(--text); font-size: 14px; }
+  button {
+    width: 100%; margin-top: 16px; padding: 12px; border: 0; border-radius: 10px;
+    background: var(--btn); color: var(--btn-text); font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: .55; cursor: default; }
+  .card {
+    margin-top: 16px; padding: 14px; border-radius: 12px; background: var(--sec);
+    border-left: 4px solid var(--hint);
+  }
+  .card.ok { border-left-color: var(--ok); }
+  .card.err { border-left-color: var(--err); }
+  .card.guard { border-left-color: var(--warn); }
+  .card h2 { font-size: 15px; margin: 0 0 8px; }
+  .kv { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 14px; }
+  .kv .k { color: var(--hint); }
+  .kv .v { font-weight: 600; text-align: right; word-break: break-all; }
+  .muted { color: var(--hint); font-size: 13px; }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--hint);
+    border-top-color: transparent; border-radius: 50%; animation: s .8s linear infinite; vertical-align: -2px; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+  <h1>Steam account scan</h1>
+
+  <label for="creds">Account</label>
+  <textarea id="creds" placeholder="user:pass&#10;or  STT|email|password|steam|pass_steam|country" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+
+  <div class="row">
+    <input type="checkbox" id="fast">
+    <label for="fast">Fast (SteamID only — skip country &amp; wallet)</label>
+  </div>
+
+  <!-- Only used when opened outside Telegram (no initData); hidden in-app. -->
+  <div id="tokenWrap" class="hidden">
+    <label for="token">Scan token</label>
+    <input type="text" id="token" placeholder="SCAN_TOKEN (dev/testing only)" autocapitalize="off" autocorrect="off" spellcheck="false">
+  </div>
+
+  <button id="scan">Scan</button>
+
+  <div id="out"></div>
+
+<script>
+(function () {
+  "use strict";
+  var tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) { try { tg.ready(); tg.expand(); } catch (e) {} }
+  var initData = (tg && tg.initData) || "";
+
+  var $ = function (id) { return document.getElementById(id); };
+  var out = $("out"), scanBtn = $("scan"), credsEl = $("creds"), fastEl = $("fast");
+
+  // Outside Telegram there is no initData, so reveal the manual token field.
+  if (!initData) $("tokenWrap").classList.remove("hidden");
+
+  function headers() {
+    var h = { "Content-Type": "application/json" };
+    if (initData) h["X-Telegram-Init-Data"] = initData;
+    var tok = $("token").value.trim();
+    if (!initData && tok) h["X-Scan-Token"] = tok;
+    return h;
+  }
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  function kv(k, v) { return '<div class="kv"><span class="k">' + esc(k) + '</span><span class="v">' + esc(v) + "</span></div>"; }
+
+  function money(w) {
+    if (!w) return null;
+    if (w.balance != null) return (w.currency || "") + " " + Number(w.balance).toFixed(2);
+    if (w.balance_cents != null) return (w.currency || "") + " " + (w.balance_cents / 100).toFixed(2);
+    return w.currency || null;
+  }
+
+  function showBusy(msg) {
+    out.innerHTML = '<div class="card"><span class="spin"></span> ' + esc(msg) + "</div>";
+  }
+
+  function showResult(r) {
+    if (!r) { out.innerHTML = '<div class="card err">No result.</div>'; return; }
+    if (!r.ok) {
+      out.innerHTML = '<div class="card err"><h2>Scan failed</h2><div class="muted">' +
+        esc(r.reason || "unknown error") + "</div></div>";
+      return;
+    }
+    var rows = "";
+    if (r.steam_id) rows += kv("SteamID", r.steam_id);
+    if (r.persona) rows += kv("Name", r.persona);
+    if (r.country) rows += kv("Country", r.country);
+    var m = money(r.wallet);
+    if (m) rows += kv("Wallet", m);
+    if (!rows) rows = '<div class="muted">Logged in. No extra details returned (fast scan).</div>';
+    out.innerHTML = '<div class="card ok"><h2>✓ Scanned</h2>' + rows + "</div>";
+  }
+
+  // Steam Guard: show the requirement + a code field, then submit and poll.
+  function showGuard(sessionId, guardType) {
+    out.innerHTML =
+      '<div class="card guard"><h2>Steam Guard required (' + esc(guardType || "2FA") + ')</h2>' +
+      '<label for="code">Enter the code</label>' +
+      '<input type="text" id="code" inputmode="numeric" autocomplete="one-time-code" ' +
+      'autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="e.g. 5F3K2">' +
+      '<button id="sendCode">Submit code</button></div>';
+    var codeEl = $("code"), sendBtn = $("sendCode");
+    codeEl.focus();
+    sendBtn.onclick = function () {
+      var code = codeEl.value.trim();
+      if (!code) { codeEl.focus(); return; }
+      sendBtn.disabled = true;
+      fetch("/api/public/login/" + sessionId + "/guard", {
+        method: "POST", headers: headers(), body: JSON.stringify({ code: code })
+      }).then(function (res) { return res.json().catch(function () { return {}; }).then(function (b) { return { res: res, b: b }; }); })
+        .then(function (x) {
+          if (!x.res.ok) throw new Error(x.b.error || ("HTTP " + x.res.status));
+          showBusy("Verifying code…");
+          pollSession(sessionId);
+        })
+        .catch(function (e) {
+          sendBtn.disabled = false;
+          out.insertAdjacentHTML("beforeend", '<div class="muted" style="color:var(--err)">' + esc(e.message) + "</div>");
+        });
+    };
+  }
+
+  function pollSession(sessionId) {
+    var tries = 0, max = 150; // ~5 min at 2s
+    (function tick() {
+      fetch("/api/public/login/" + sessionId, { headers: headers() })
+        .then(function (res) { return res.json(); })
+        .then(function (s) {
+          if (s.status === "need_guard") { showGuard(sessionId, s.guard_type); return; }
+          if (s.status === "done" || s.status === "error") { showResult(s.result || { ok: false, reason: s.reason }); return; }
+          if (++tries > max) { out.innerHTML = '<div class="card err">Timed out waiting for the scan.</div>'; return; }
+          showBusy("Working… (" + esc(s.status || "logging in") + ")");
+          setTimeout(tick, 2000);
+        })
+        .catch(function (e) {
+          if (++tries > max) { out.innerHTML = '<div class="card err">' + esc(e.message) + "</div>"; return; }
+          setTimeout(tick, 2000);
+        });
+    })();
+  }
+
+  function pollJob(id) {
+    var tries = 0, max = 150;
+    (function tick() {
+      fetch("/api/public/jobs/" + id, { headers: headers() })
+        .then(function (res) { return res.json(); })
+        .then(function (j) {
+          var done = j.status === "done" || j.status === "error" || j.status === "cancelled";
+          if (done) {
+            out.innerHTML = '<div class="card ' + (j.status === "done" ? "ok" : "err") + '"><h2>' +
+              esc(j.status) + '</h2>' + kv("ok", j.ok) + kv("failed", j.failed) +
+              kv("guard-skipped", j.guard_skipped) + "</div>";
+            return;
+          }
+          if (++tries > max) { out.innerHTML = '<div class="card err">Timed out.</div>'; return; }
+          showBusy("Scanning… (" + esc(j.done || 0) + "/" + esc(j.total || 0) + ")");
+          setTimeout(tick, 2000);
+        })
+        .catch(function () { if (++tries <= max) setTimeout(tick, 2000); });
+    })();
+  }
+
+  scanBtn.onclick = function () {
+    var text = credsEl.value.trim();
+    if (!text) { credsEl.focus(); return; }
+    if (!initData && !$("token").value.trim()) {
+      out.innerHTML = '<div class="card err">Open this inside Telegram, or enter a scan token.</div>';
+      return;
+    }
+    scanBtn.disabled = true;
+    showBusy("Logging in…");
+    var body = { text: text };
+    if (fastEl.checked) body.idOnly = true; // default is a full scan (country + wallet)
+
+    fetch("/api/public/scan", { method: "POST", headers: headers(), body: JSON.stringify(body) })
+      .then(function (res) { return res.json().catch(function () { return {}; }).then(function (b) { return { res: res, b: b }; }); })
+      .then(function (x) {
+        var res = x.res, b = x.b;
+        if (res.status === 401) { out.innerHTML = '<div class="card err">Unauthorized — initData/token rejected.</div>'; return; }
+        if (!res.ok && !b.need_guard && b.ok === undefined && !b.id) {
+          out.innerHTML = '<div class="card err">' + esc(b.error || ("HTTP " + res.status)) + "</div>";
+          return;
+        }
+        if (b.need_guard) { showGuard(b.session_id, b.guard_type); return; }   // single-account, 2FA
+        if (b.id && b.status !== undefined) { pollJob(b.id); return; }          // multi-account job
+        showResult(b);                                                          // single-account sync result
+      })
+      .catch(function (e) { out.innerHTML = '<div class="card err">' + esc(e.message) + "</div>"; })
+      .finally(function () { scanBtn.disabled = false; });
+  };
+})();
+</script>
+</body>
+</html>
