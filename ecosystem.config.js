@@ -21,9 +21,9 @@ module.exports = {
     name: 'steam',
     script: 'server.js',
     cwd: __dirname,
-    env_file: '/opt/steam/.env',   // DASHBOARD_TOKEN=... and TURSO_AUTH_TOKEN=...
+    env_file: '.env',   // DASHBOARD_TOKEN=... and TURSO_AUTH_TOKEN=...
     env: {
-      TURSO_DATABASE_URL: 'libsql://steam-phamtuyenhien.aws-ap-northeast-1.turso.io',
+      TURSO_DATABASE_URL: 'libsql://steam2-tichvan.aws-ap-south-1.turso.io',
     },
     autorestart: true,
     max_restarts: 10,
