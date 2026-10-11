@@ -787,7 +787,15 @@ function viewScan() {
                 submit.disabled = false;
                 return;
             }
-            if (!job.id) { // everything was skipped as already-existing
+            if (job.need_guard) { // single-account sync scan waiting on a Steam Guard code
+                toast(`${job.account_name || 'account'} needs a Steam Guard code (${job.guard_type || '2FA'}) — use the login flow to finish`, true);
+                api('/api/summary').then((sm) => { state.summary = sm; $('#stats').replaceChildren(...statCards(sm)); }).catch(() => {});
+            } else if (job.ok !== undefined && !job.id) { // single-account sync scan finished inline
+                const who = job.account?.username || job.account?.steam_id || 'account';
+                toast(job.ok ? `Scanned ${who}` : `Scan failed: ${job.reason || 'unknown'}`, !job.ok);
+                if (job.ok) ta.value = '';
+                api('/api/summary').then((sm) => { state.summary = sm; $('#stats').replaceChildren(...statCards(sm)); }).catch(() => {});
+            } else if (!job.id) { // everything was skipped as already-existing
                 toast(job.message || 'Nothing to scan', true);
             } else {
                 const notes = [];

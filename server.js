@@ -139,6 +139,70 @@ function startLogin(steamID, accountName, password) {
     return sess;
 }
 
+// Synchronous single-account scan (the Telegram Mini App path). Runs scanAccount
+// inline and returns the result in the HTTP response. If the account needs a
+// Steam Guard code, a login session is registered so the caller can POST the code
+// to /api/accounts/login/:sid/guard and then poll /api/accounts/login/:sid for the
+// result; the scan keeps running in the background meanwhile. Like the interactive
+// /api/accounts/login flow, this bypasses the steamQueue (it is a single login).
+async function runSyncSingleScan(res, account, { idOnly }) {
+    sweepLoginSessions();
+    const sid = crypto.randomBytes(8).toString('hex');
+    const sess = {
+        sid, client: null, account_name: account.username, steam_id: account.steam_id || null,
+        status: 'logging_in', reason: null, guard_type: null, guard_cb: null,
+        resolved_steam_id: null, result: null,
+        created_at: Date.now(), finished_at: null,
+    };
+    loginSessions.set(sid, sess);
+
+    let guardSignaled = false;
+    let resolveGuard;
+    const guardPrompt = new Promise((r) => { resolveGuard = r; });
+    const onGuard = (kind, callback) => {
+        sess.guard_type = kind;
+        sess.guard_cb = callback;
+        sess.status = 'need_guard';
+        if (!guardSignaled) { guardSignaled = true; resolveGuard(); }
+    };
+
+    // The scan resolves with the full result; onGuard fires if a code is needed.
+    // Give it the login-session TTL so there is time to enter a code and finish.
+    const scanPromise = scanAccount(account, { timeout: LOGIN_TTL_MS, idOnly, onGuard })
+        .then((r) => {
+            sess.result = r;
+            sess.status = r && r.ok ? 'done' : 'error';
+            sess.reason = (r && r.reason) || null;
+            if (r && r.account && r.account.steam_id) sess.resolved_steam_id = r.account.steam_id;
+            sess.guard_cb = null;
+            sess.finished_at = Date.now();
+            return r;
+        })
+        .catch((e) => {
+            sess.status = 'error'; sess.reason = e.message || String(e);
+            sess.guard_cb = null; sess.finished_at = Date.now();
+            return { ok: false, reason: sess.reason, account };
+        });
+
+    // Return as soon as the scan finishes OR a Steam Guard code is requested.
+    const outcome = await Promise.race([
+        scanPromise.then((r) => ({ kind: 'result', r })),
+        guardPrompt.then(() => ({ kind: 'guard' })),
+    ]);
+
+    if (outcome.kind === 'guard') {
+        return sendJSON(res, 202, {
+            need_guard: true, guard_type: sess.guard_type, session_id: sid,
+            account_name: account.username,
+            hint: `POST /api/accounts/login/${sid}/guard {"code"}, then GET /api/accounts/login/${sid} for the result`,
+        });
+    }
+    // Finished without needing a code (cached token or no guard) — return inline.
+    // 200 regardless of outcome; the caller reads result.ok / result.reason.
+    loginSessions.delete(sid);
+    return sendJSON(res, 200, outcome.r);
+}
+
 function makeJob(type, meta) {
     const id = crypto.randomBytes(6).toString('hex');
     const job = {
@@ -858,7 +922,7 @@ async function handleAPI(req, res, url) {
     if (method === 'GET' && m) {
         const sess = loginSessions.get(m[1]);
         if (!sess) return sendJSON(res, 404, { error: 'no such login session (it may have expired)' });
-        return sendJSON(res, 200, { status: sess.status, guard_type: sess.guard_type, reason: sess.reason, account_name: sess.account_name, resolved_steam_id: sess.resolved_steam_id || null });
+        return sendJSON(res, 200, { status: sess.status, guard_type: sess.guard_type, reason: sess.reason, account_name: sess.account_name, resolved_steam_id: sess.resolved_steam_id || null, result: sess.result || null });
     }
 
     // Supply a Steam Guard code to a waiting login session.
@@ -1201,6 +1265,13 @@ async function handleAPI(req, res, url) {
                 added_names: added, added_pending: addedPending,
                 skipped_existing: skippedExisting, skipped_failed: skippedFailed
             });
+        }
+
+        // Single account -> run synchronously and return the result inline (the
+        // Telegram Mini App path). A Steam Guard prompt surfaces as need_guard + a
+        // session id for the caller to supply the code. Multi stays async (a job).
+        if (accounts.length === 1) {
+            return runSyncSingleScan(res, accounts[0], { idOnly: !!idOnly });
         }
 
         // "SteamID only" logins are quick (no community fetch), so a shorter default.

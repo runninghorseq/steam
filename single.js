@@ -102,7 +102,7 @@ function parseSentGifts(html) {
  * @param {{timeout?: number, log?: Function}} opts
  */
 function scanAccount(account, opts = {}) {
-    const { timeout = 60000, log = console.log, idOnly = false } = opts;
+    const { timeout = 60000, log = console.log, idOnly = false, onGuard = null } = opts;
     const tag = `[${account.id ?? account.username}]`;
 
     return new Promise((resolve) => {
@@ -164,8 +164,20 @@ function scanAccount(account, opts = {}) {
         // not calling the callback and finishing here logs off before it can hang
         // until the timeout. Flagged skipped:true so callers can report it apart
         // from a hard failure.
-        client.on('steamGuard', (domain) => {
+        client.on('steamGuard', (domain, callback) => {
             const kind = domain ? `email (${domain})` : 'mobile authenticator';
+            // Interactive caller (a single synchronous scan): hand the callback out
+            // so a code can be supplied, and keep the login alive. steam-user
+            // re-emits 'steamGuard' on a wrong code, so onGuard may fire again.
+            if (typeof onGuard === 'function') {
+                log(`${tag} Steam Guard required (${kind}) — awaiting code`);
+                onGuard(kind, callback);
+                return;
+            }
+            // Unattended scan: no way to supply a code, so skip immediately — not
+            // calling the callback and finishing here logs off before the login can
+            // hang until the timeout. Flagged skipped:true so callers can report it
+            // apart from a hard failure.
             log(`${tag} Steam Guard required (${kind}) — skipping`);
             finish({ ok: false, skipped: true, reason: `Steam Guard required (${kind})`, account });
         });

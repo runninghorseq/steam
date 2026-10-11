@@ -218,7 +218,11 @@ async function checkAuth(req, url, env) {
     // with the bot token) authorizes on its own — no static secret in browser JS,
     // and it is per-user + time-limited. SCAN_TOKEN stays as a fallback for a
     // non-browser caller (e.g. a bot backend) that can't produce initData.
-    if (url.pathname === '/api/public/scan' || /^\/api\/public\/jobs\/[0-9a-f]{12}$/.test(url.pathname)) {
+    if (url.pathname === '/api/public/scan'
+        || /^\/api\/public\/jobs\/[0-9a-f]{12}$/.test(url.pathname)
+        // Single-account scan returns a login session id; the Mini App supplies a
+        // Steam Guard code and polls the result through these (proxied to the box).
+        || /^\/api\/public\/login\/[0-9a-f]{16}(\/guard)?$/.test(url.pathname)) {
         const initData = req.headers.get('x-telegram-init-data') || '';
         if (initData && env.TELEGRAM_BOT_TOKEN && (await verifyTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN)).ok) return null;
         const scanTok = req.headers.get('x-scan-token') || hdrTok || q.get('token');
@@ -1112,8 +1116,11 @@ function offerFilter(url) {
     // --- public scan (Telegram Mini App, scoped SCAN_TOKEN) ---------------------
     // Submit Steam credentials and run a scan without the dashboard password. The
     // box performs the actual Steam login; we just forward the same body /api/scan
-    // takes. Defaults to SteamID-only (fast). Returns the box's 202 job view; poll
-    // GET /api/public/jobs/<id> for progress. CORS is added by the fetch handler.
+    // takes. Defaults to SteamID-only (fast). A SINGLE account runs synchronously:
+    // the box returns 200 with the result, or 202 { need_guard, session_id } — then
+    // POST /api/public/login/<sid>/guard {code} and GET /api/public/login/<sid> for
+    // the result. Multiple accounts return a 202 job view; poll GET
+    // /api/public/jobs/<id>. CORS is added by the fetch handler.
     if (method === 'POST' && p === '/api/public/scan') {
         const b = await body();
         if (!b.text || !String(b.text).trim()) return json({ error: 'no credentials provided — send { "text": "user:pass" }' }, 400);
@@ -1143,6 +1150,18 @@ function offerFilter(url) {
         let view = {}; try { view = JSON.parse(row.summary); } catch { /* keep {} */ }
         view.lines = row.lines ? row.lines.split('\n') : [];
         return json(view);
+    }
+    // A single-account public scan returns a login session id when a Steam Guard
+    // code is needed. These proxy to the box's interactive-login endpoints so the
+    // Mini App can submit the code (POST .../guard) and poll for the result (GET).
+    m = /^\/api\/public\/login\/([0-9a-f]{16})(\/guard)?$/.exec(p);
+    if (m && ((method === 'GET' && !m[2]) || (method === 'POST' && m[2]))) {
+        const boxUrl = new URL(url.toString());
+        boxUrl.pathname = `/api/accounts/login/${m[1]}${m[2] || ''}`;
+        boxUrl.search = '';
+        const init = { method, headers: { 'Content-Type': 'application/json' } };
+        if (method === 'POST') init.body = JSON.stringify(await body());
+        return proxyToBox(new Request(boxUrl.toString(), init), env, boxUrl);
     }
 
     // Attach/refresh mailbox OAuth tokens on accounts that already exist, matching
