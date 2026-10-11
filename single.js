@@ -121,6 +121,9 @@ function scanAccount(account, opts = {}) {
         const flags = { account: false, email: false, country: false, points: false, wallet: false, friends: false, licenses: false, gifts: false, levels: false };
         let steamID = null;
         let resolved = false;
+        // Data captured during the scan, surfaced in the success result (e.g. for a
+        // synchronous single-account scan) in addition to being written to the DB.
+        const scanData = { persona: null, country: null, wallet: null };
 
         const finish = (result) => {
             if (resolved) return;
@@ -133,7 +136,7 @@ function scanAccount(account, opts = {}) {
         const check = () => {
             if (!Object.values(flags).every(Boolean)) return;
             log(`${tag} done`);
-            finish({ ok: true, account });
+            finish({ ok: true, account, steam_id: steamID, persona: scanData.persona, country: scanData.country, wallet: scanData.wallet });
         };
 
         // steam-user's EventEmitter does not await async handlers, so a rejected
@@ -229,6 +232,7 @@ function scanAccount(account, opts = {}) {
             // Real registered country — NOT accountInfo's ip_country (login-IP geolocation).
             getUserCountry(client, steamID).then(async (country) => {
                 await store.saveAccount({ steam_id: steamID, country });
+                scanData.country = country ?? null;
                 log(`${tag} country: ${country ?? '(none)'}`);
                 flags.country = true;
                 check();
@@ -257,6 +261,7 @@ function scanAccount(account, opts = {}) {
                 // re-scans have no password, so COALESCE leaves the stored one intact.
                 steam_password: account.password ?? null
             });
+            scanData.persona = name ?? null;
             flags.account = true;
             check();
         });
@@ -274,12 +279,14 @@ function scanAccount(account, opts = {}) {
             // steam-user emits `balance` already in main currency units (e.g. dollars),
             // not the smallest unit. Convert to integer cents for DB storage.
             const cents = balance == null ? null : Math.round(balance * 100);
+            const curr = SteamUser.ECurrencyCode[currency] || String(currency || '');
             await store.saveAccount({
                 steam_id: steamID,
-                wallet_currency: SteamUser.ECurrencyCode[currency] || String(currency || ''),
+                wallet_currency: curr,
                 wallet_balance_cents: cents
             });
-            log(`${tag} wallet: ${SteamUser.ECurrencyCode[currency] || currency} ${(balance ?? 0).toFixed(2)}`);
+            scanData.wallet = { currency: curr, balance_cents: cents, balance: balance ?? null };
+            log(`${tag} wallet: ${curr} ${(balance ?? 0).toFixed(2)}`);
             flags.wallet = true;
             check();
         });

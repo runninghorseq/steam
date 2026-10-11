@@ -1116,7 +1116,8 @@ function offerFilter(url) {
     // --- public scan (Telegram Mini App, scoped SCAN_TOKEN) ---------------------
     // Submit Steam credentials and run a scan without the dashboard password. The
     // box performs the actual Steam login; we just forward the same body /api/scan
-    // takes. Defaults to SteamID-only (fast). A SINGLE account runs synchronously:
+    // takes. Defaults to a full scan (result carries persona/country/wallet); pass
+    // idOnly:true for a fast SteamID-only login. A SINGLE account runs synchronously:
     // the box returns 200 with the result, or 202 { need_guard, session_id } — then
     // POST /api/public/login/<sid>/guard {code} and GET /api/public/login/<sid> for
     // the result. Multiple accounts return a 202 job view; poll GET
@@ -1126,8 +1127,9 @@ function offerFilter(url) {
         if (!b.text || !String(b.text).trim()) return json({ error: 'no credentials provided — send { "text": "user:pass" }' }, 400);
         const payload = {
             text: String(b.text),
-            // default: log in just to learn + save the SteamID (fast). addOnly skips login.
-            idOnly: b.addOnly ? false : (b.idOnly !== false),
+            // default: a full scan so the result carries persona/country/wallet.
+            // Pass idOnly:true for a fast SteamID-only login. addOnly skips login.
+            idOnly: b.addOnly ? false : (b.idOnly === true),
             addOnly: !!b.addOnly,
             rescan: !!b.rescan,
             source: b.source ? String(b.source).slice(0, 255) : 'telegram',
