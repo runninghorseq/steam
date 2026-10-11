@@ -295,7 +295,11 @@ async function runScanJob(job, accounts, timeout, opts = {}) {
             job.failed++;
             jobLog(job, `   FAIL ${acc.username}: ${res?.reason || 'unknown'}`);
         }
-        job.results.push({ username: acc.username, ok: !!res?.ok, skipped: !!res?.skipped, reason: res?.reason || null, partial: res?.partial || null });
+        job.results.push({
+            username: acc.username, ok: !!res?.ok, skipped: !!res?.skipped, reason: res?.reason || null, partial: res?.partial || null,
+            // Scanned data (full scan) so callers can show the result, not just the log.
+            steam_id: res?.steam_id || null, persona: res?.persona || null, country: res?.country || null, wallet: res?.wallet || null,
+        });
     }
     job.status = job.cancelled ? 'cancelled' : 'done';
     job.finished_at = now();

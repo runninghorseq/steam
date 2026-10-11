@@ -191,9 +191,19 @@
         .then(function (j) {
           var done = j.status === "done" || j.status === "error" || j.status === "cancelled";
           if (done) {
-            out.innerHTML = '<div class="card ' + (j.status === "done" ? "ok" : "err") + '"><h2>' +
-              esc(j.status) + '</h2>' + kv("ok", j.ok) + kv("failed", j.failed) +
-              kv("guard-skipped", j.guard_skipped) + "</div>";
+            var results = j.results || [];
+            if (results.length === 1) { showResult(results[0]); return; }   // single account: show its data
+            var html = "";
+            for (var i = 0; i < results.length; i++) {
+              var r = results[i], m = money(r.wallet);
+              var cls = r.ok ? "ok" : (r.skipped ? "guard" : "err");
+              html += '<div class="card ' + cls + '"><h2>' + esc(r.username || "account") + "</h2>" +
+                (r.ok
+                  ? (r.steam_id ? kv("SteamID", r.steam_id) : "") + (r.country ? kv("Country", r.country) : "") + (m ? kv("Wallet", m) : "")
+                  : '<div class="muted">' + esc(r.reason || (r.skipped ? "skipped" : "failed")) + "</div>") +
+                "</div>";
+            }
+            out.innerHTML = html || '<div class="card">No accounts scanned.</div>';
             return;
           }
           if (++tries > max) { out.innerHTML = '<div class="card err">Timed out.</div>'; return; }
